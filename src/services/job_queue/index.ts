@@ -18,6 +18,7 @@ interface SqlJobPayload {
   solutionSql?: string;
   validationSql?: string;
   orderMatters?: boolean;
+  userId?: string;
 }
 
 export interface AdminAssignmentSeedJobPayload {
@@ -28,6 +29,7 @@ export interface AdminAssignmentSeedJobPayload {
 interface JobStatusResponse {
   status: string;
   result?: unknown;
+  ownerUserId?: string;
 }
 
 class TaskQueueClient {
@@ -94,6 +96,10 @@ class TaskQueueClient {
     }
     const taskState = await task.getState();
     const respBodyData: JobStatusResponse = { status: taskState };
+    const ownerUserId = (task.data as SqlJobPayload | undefined)?.userId;
+    if (ownerUserId) {
+      respBodyData.ownerUserId = ownerUserId;
+    }
 
     if (taskState === "completed" && task.returnvalue) {
       respBodyData.result = task.returnvalue;

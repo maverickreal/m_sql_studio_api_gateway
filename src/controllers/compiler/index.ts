@@ -57,6 +57,7 @@ const run_client_sql_code = async (req: Request, res: Response) => {
     solutionSql: solution?.solutionSql || undefined,
     validationSql: solution?.validationSql || undefined,
     orderMatters: solution?.orderMatters,
+    userId: req.user?.id,
   });
 
   res.status(202).json({ taskId });

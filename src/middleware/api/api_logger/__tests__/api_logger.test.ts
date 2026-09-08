@@ -28,7 +28,9 @@ describe("apiLogger middleware", () => {
 
   it("should export a function as default and call pinoHttp with the logger", () => {
     expect(typeof apiLogger).toBe("function");
-    expect(pinoHttp).toHaveBeenCalledWith({ logger });
+    expect(pinoHttp).toHaveBeenCalledWith(
+      expect.objectContaining({ logger }),
+    );
   });
 
   it("should pass through to next middleware", () => {

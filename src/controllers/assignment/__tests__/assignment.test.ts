@@ -33,6 +33,7 @@ describe('Assignment Controller', () => {
     res = {
       status: statusMock,
       json: jsonMock,
+      set: vi.fn().mockReturnThis(),
     };
     vi.clearAllMocks();
   });
@@ -51,7 +52,7 @@ describe('Assignment Controller', () => {
 
       expect(Assignment.find).toHaveBeenCalledWith(
         { pgSchemaReady: true },
-        { _id: 1, title: 1, difficulty: 1 },
+        { _id: 1, title: 1, difficulty: 1, mode: 1 },
       );
       expect(statusMock).toHaveBeenCalledWith(200);
       expect(jsonMock).toHaveBeenCalledWith({ assignments: mockAssignments });

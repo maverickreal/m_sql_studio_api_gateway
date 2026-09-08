@@ -23,12 +23,14 @@ const retrieve_all_assignments = async (req: Request, res: Response) => {
       _id: 1,
       title: 1,
       difficulty: 1,
+      mode: 1,
     },
   )
     .skip((page - 1) * limit)
     .limit(limit)
     .lean();
 
+  res.set("Cache-Control", "public, max-age=15");
   res.status(200).json({ assignments });
 };
 

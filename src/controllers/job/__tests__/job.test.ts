@@ -26,7 +26,7 @@ describe("Job Controller", () => {
   });
 
   it("should return 200 with job status when task exists", async () => {
-    req = { params: { taskId: "123" } };
+    req = { params: { taskId: "123" }, user: { id: "user-1", role: "user" } } as any;
     const mockStatus = { status: "completed", result: { rows: [] } };
     (services.TaskQueueClient.getStatus as any).mockResolvedValue(mockStatus);
 
@@ -60,5 +60,42 @@ describe("Job Controller", () => {
     await get_job_status(req as Request, res as Response);
 
     expect(services.TaskQueueClient.getStatus).toHaveBeenCalledWith("456");
+  });
+
+  it("should return 403 when another user owns the job", async () => {
+    req = {
+      params: { taskId: "123" },
+      user: { id: "user-2", role: "user" },
+    } as any;
+    (services.TaskQueueClient.getStatus as any).mockResolvedValue({
+      status: "completed",
+      result: { passed: true },
+      ownerUserId: "user-1",
+    });
+
+    await get_job_status(req as Request, res as Response);
+
+    expect(statusMock).toHaveBeenCalledWith(403);
+    expect(jsonMock).toHaveBeenCalledWith({ error: "Forbidden" });
+  });
+
+  it("should allow admin to read another user's job and strip ownerUserId", async () => {
+    req = {
+      params: { taskId: "123" },
+      user: { id: "admin-1", role: "admin" },
+    } as any;
+    (services.TaskQueueClient.getStatus as any).mockResolvedValue({
+      status: "completed",
+      result: { passed: true },
+      ownerUserId: "user-1",
+    });
+
+    await get_job_status(req as Request, res as Response);
+
+    expect(statusMock).toHaveBeenCalledWith(200);
+    expect(jsonMock).toHaveBeenCalledWith({
+      status: "completed",
+      result: { passed: true },
+    });
   });
 });

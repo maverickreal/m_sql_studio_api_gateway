@@ -16,9 +16,22 @@ const get_job_status = async (
 
   if (!jobStatus) {
     res.status(404).json({ error: "Couldn't find the task!" });
-  } else {
-    res.status(200).json(jobStatus);
+    return;
   }
+
+  const requester = req.user;
+  const isAdmin = requester?.role === "admin";
+  if (
+    jobStatus.ownerUserId &&
+    !isAdmin &&
+    jobStatus.ownerUserId !== requester?.id
+  ) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+
+  const { ownerUserId: _ownerUserId, ...body } = jobStatus;
+  res.status(200).json(body);
 };
 
 export default get_job_status;
