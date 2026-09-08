@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { z } from "zod/v4";
 import request from "supertest";
 
 vi.mock("../../config", () => ({
@@ -124,12 +123,11 @@ vi.mock("../../data/db/models/assignment_solution", () => ({
   AssignmentSolutionValidatorSchema,
 }));
 
-const { mockTaskQueueClient, mockJob } = vi.hoisted(() => {
+const { mockTaskQueueClient } = vi.hoisted(() => {
   const job = {
     waitUntilFinished: vi.fn().mockResolvedValue({ success: true }),
   };
   return {
-    mockJob: job,
     mockTaskQueueClient: {
       enqueue: vi.fn(),
       enqueueAdminAssignmentSeedJob: vi.fn(),

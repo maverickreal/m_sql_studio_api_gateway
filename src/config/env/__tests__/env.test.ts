@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { z } from "zod/v4";
 
 const ENV_MODE = {
@@ -10,7 +10,7 @@ const ENV_MODE = {
 const envVarsSchema = z.object({
   CLIENT_URL: z.url().nonempty().nonoptional(),
   SERVER_PORT: z.coerce.number().int().nonoptional(),
-  MONGO_URI: z.string().nonempty().nonoptional(),
+  MONGO_URI: z.string().startsWith("mongodb").nonempty().nonoptional(),
   REDIS_URL: z.url().nonempty().nonoptional(),
   BULLMQ_SQL_QUEUE_NAME: z.string().nonempty().nonoptional(),
   LOG_LEVEL: z
