@@ -25,6 +25,7 @@ if (envVars.GITHUB_CLIENT_ID && envVars.GITHUB_CLIENT_SECRET) {
 export const auth = betterAuth({
   baseURL: envVars.BETTER_AUTH_URL,
   secret: envVars.BETTER_AUTH_SECRET,
+  trustedOrigins: [envVars.CLIENT_URL],
   database: mongodbAdapter(mongoDb, {
     client: sharedMongoClient,
   }),
