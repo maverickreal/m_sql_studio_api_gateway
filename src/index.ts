@@ -1,7 +1,7 @@
 import app from "./app";
 import { envVars, logger } from "./config";
 import { DBClient, CacheClient } from "./data";
-import { TaskQueueClient } from "./services";
+import { TaskQueueClient, SseSubscriber } from "./services";
 import { seedAdminUser } from "./auth";
 import {
   SERVER_START_FAILURE_EXIT_CODE,
@@ -10,6 +10,7 @@ import {
 } from "./utils";
 
 const cleanup = async () => {
+  await SseSubscriber.disconnect();
   await TaskQueueClient.disconnect();
   await CacheClient.disconnect();
   await DBClient.disconnect();
@@ -40,6 +41,18 @@ app
     await CacheClient.connect();
     await DBClient.connect();
     TaskQueueClient.connect();
+
+    try {
+      await TaskQueueClient.enqueueRepeatableCleanupJob(
+        envVars.CLEANUP_JOB_CRON,
+      );
+      logger.info(
+        { cron: envVars.CLEANUP_JOB_CRON },
+        "Enqueued repeatable sandbox cleanup job.",
+      );
+    } catch (err) {
+      logger.error({ err }, "Failed to enqueue repeatable cleanup job!");
+    }
 
     if (envVars.ENV_MODE === ENV_MODE.DEV) {
       const adminEmail = envVars.DEFAULT_ADMIN_EMAIL;

@@ -4,7 +4,10 @@ import { Assignment } from "../../data/db/models/assignment";
 import { AssignmentSolution } from "../../data/db/models/assignment_solution";
 import { CacheClient } from "../../data";
 import { ASSIGNMENT_KEY_PREFIX } from "../../utils";
-import { logger } from "../../config";
+import { getSandboxDBSchemaIdForAssignment } from "../../utils";
+import { SANDBOX_SCHEMA_TTL_DAYS } from "../../utils";
+import { TaskQueueClient } from "../../services";
+import { envVars, logger } from "../../config";
 
 const cleanup_assignment = async (req: Request, res: Response) => {
   const id = req.params.id as string;
@@ -66,4 +69,49 @@ const confirm_assignment = async (req: Request, res: Response) => {
   }
 };
 
-export { cleanup_assignment, confirm_assignment };
+const get_old_schemas = async (req: Request, res: Response) => {
+  const rawTtl = req.query.ttlDays;
+  const ttlDays =
+    rawTtl === undefined
+      ? (envVars.SANDBOX_SCHEMA_TTL_DAYS ?? SANDBOX_SCHEMA_TTL_DAYS)
+      : Number(rawTtl);
+
+  if (!Number.isInteger(ttlDays) || ttlDays < 1) {
+    res.status(400).json({ error: "Invalid ttlDays provided!" });
+    return;
+  }
+
+  try {
+    const cutoff = new Date(Date.now() - ttlDays * 24 * 60 * 60 * 1000);
+    const stale = await Assignment.find(
+      { createdAt: { $lt: cutoff } },
+      { _id: 1 },
+    ).lean();
+
+    const schemaNames = stale.map((doc) =>
+      getSandboxDBSchemaIdForAssignment(`${doc._id}`),
+    );
+
+    res.status(200).json({ schemaNames, count: schemaNames.length });
+  } catch (err) {
+    logger.error({ err }, "Failed to list old schemas for cleanup!");
+    res.status(500).json({ error: "Failed to list old schemas!" });
+  }
+};
+
+const trigger_cleanup = async (_req: Request, res: Response) => {
+  try {
+    const jobId = await TaskQueueClient.enqueueCleanupJob();
+    res.status(202).json({ jobId });
+  } catch (err) {
+    logger.error({ err }, "Failed to enqueue cleanup job!");
+    res.status(500).json({ error: "Failed to enqueue cleanup job!" });
+  }
+};
+
+export {
+  cleanup_assignment,
+  confirm_assignment,
+  get_old_schemas,
+  trigger_cleanup,
+};

@@ -4,6 +4,7 @@ import {
   JOB_TTL_S,
   BULLMQ_JOB_NAME,
   ADMIN_ASSIGNMENT_SEED_JOB_NAME,
+  CLEANUP_JOB_NAME,
   BULLMQ_JOB_FAILURE_MESSAGE,
   ASSIGNMENT_SEED_JOB_MAX_ATTEMPTS,
 } from "../../utils";
@@ -80,6 +81,32 @@ class TaskQueueClient {
     return id;
   }
 
+  static async enqueueCleanupJob() {
+    const { id } = await TaskQueueClient.clientInst!.add(
+      CLEANUP_JOB_NAME,
+      {},
+      {
+        removeOnComplete: { age: JOB_TTL_S },
+        removeOnFail: { age: JOB_TTL_S },
+      },
+    );
+
+    return id;
+  }
+
+  static async enqueueRepeatableCleanupJob(cronPattern: string) {
+    const { id } = await TaskQueueClient.clientInst!.add(
+      CLEANUP_JOB_NAME,
+      {},
+      {
+        repeat: { pattern: cronPattern },
+        removeOnComplete: { age: JOB_TTL_S },
+        removeOnFail: { age: JOB_TTL_S },
+      },
+    );
+
+    return id;
+  }
   static async ping(): Promise<void> {
     await TaskQueueClient.clientInst!.getJobCounts();
   }

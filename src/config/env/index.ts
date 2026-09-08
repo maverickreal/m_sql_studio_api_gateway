@@ -1,5 +1,11 @@
 import { z } from "zod/v4";
-import { ENV_MODE, SERVER_START_FAILURE_EXIT_CODE } from "../../utils";
+import {
+  ENV_MODE,
+  SERVER_START_FAILURE_EXIT_CODE,
+  SANDBOX_SCHEMA_TTL_DAYS,
+  CLEANUP_JOB_CRON,
+  JOB_RESULT_TTL_DAYS,
+} from "../../utils";
 
 const envVarsSchema = z.object({
   CLIENT_URL: z.url().nonempty().nonoptional(),
@@ -27,6 +33,17 @@ const envVarsSchema = z.object({
   DEFAULT_ADMIN_EMAIL: z.email().nonoptional(),
   DEFAULT_ADMIN_PASSWORD: z.string().nonempty().nonoptional(),
   ADMIN_SECRET_CODE: z.string().nonempty().nonoptional(),
+  SANDBOX_SCHEMA_TTL_DAYS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(SANDBOX_SCHEMA_TTL_DAYS),
+  CLEANUP_JOB_CRON: z.string().nonempty().default(CLEANUP_JOB_CRON),
+  JOB_RESULT_TTL_DAYS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(JOB_RESULT_TTL_DAYS),
 });
 
 const parsedEnvVarsBody = envVarsSchema.safeParse(process.env);

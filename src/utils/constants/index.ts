@@ -41,6 +41,10 @@ export const ASSIGNMENT_SOLUTION_KEY_PREFIX =
 export const BULLMQ_JOB_NAME = "client_sql_studio_sql_exec";
 export const ADMIN_ASSIGNMENT_SEED_JOB_NAME =
   "client_sql_studio_admin_assignment_seed";
+export const CLEANUP_JOB_NAME = "client_sql_studio_cleanup";
+export const CLEANUP_JOB_CRON = "0 3 * * *";
+export const SANDBOX_SCHEMA_TTL_DAYS = 7;
+export const JOB_RESULT_TTL_DAYS = 30;
 export const BULLMQ_JOB_FAILURE_MESSAGE = "BullMQ task failed!";
 export const SANDBOX_DB_SCHEMA_PREFIX = "assignment_schema_";
 export const ASSIGNMENT_SEED_JOB_MAX_ATTEMPTS = 3;
