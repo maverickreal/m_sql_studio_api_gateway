@@ -8,11 +8,23 @@ vi.mock("../../../config", () => ({
 }));
 
 vi.mock("../../../data/db/client", () => ({
-  sharedMongoClient: {},
+  sharedMongoClient: { db: vi.fn(() => ({ collection: vi.fn() })) },
   default: {
     connect: vi.fn(),
     disconnect: vi.fn(),
   },
+}));
+
+vi.mock("../../../data/db/models/audit_log", () => ({
+  AuditLog: {
+    create: vi.fn().mockResolvedValue({}),
+    find: vi.fn(),
+  },
+}));
+
+vi.mock("../../../auth", () => ({
+  auth: { api: { listUsers: vi.fn(), setRole: vi.fn() } },
+  seedAdminUser: vi.fn(),
 }));
 
 vi.mock("../../../data/db/models/assignment", () => ({

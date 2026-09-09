@@ -123,6 +123,19 @@ vi.mock("../../data/db/models/assignment_solution", () => ({
   AssignmentSolutionValidatorSchema,
 }));
 
+vi.mock("../../data/db/models/audit_log", () => ({
+  AuditLog: {
+    create: vi.fn().mockResolvedValue({}),
+    find: vi.fn().mockReturnValue({
+      sort: vi.fn().mockReturnValue({
+        limit: vi.fn().mockReturnValue({
+          lean: vi.fn().mockResolvedValue([]),
+        }),
+      }),
+    }),
+  },
+}));
+
 const { mockTaskQueueClient } = vi.hoisted(() => {
   const job = {
     waitUntilFinished: vi.fn().mockResolvedValue({ success: true }),

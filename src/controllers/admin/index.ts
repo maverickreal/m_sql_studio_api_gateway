@@ -1,13 +1,18 @@
 import { Request, Response } from "express";
 import { z } from "zod/v4";
+import { fromNodeHeaders } from "better-auth/node";
 import {
   Assignment,
   AssignmentValidatorSchema,
+} from "../../data/db/models/assignment";
+import {
   AssignmentSolution,
   AssignmentSolutionValidatorSchema,
-} from "../../data";
+} from "../../data/db/models/assignment_solution";
+import { AuditLog } from "../../data/db/models/audit_log";
 import TaskQueueClient from "../../services/job_queue";
 import { logger } from "../../config";
+import { auth } from "../../auth";
 
 const adminAssignmentSchema = z.object({
   ...AssignmentValidatorSchema,
@@ -61,6 +66,17 @@ const create_assignment = async (req: Request, res: Response) => {
       initSql: initSql,
     });
 
+    try {
+      await AuditLog.create({
+        actorId: String(req.user?.id ?? "unknown"),
+        action: "assignment.create",
+        targetType: "assignment",
+        targetId: String(freshAssignment._id),
+      });
+    } catch (auditErr) {
+      logger.error({ auditErr }, "Failed to write assignment.create audit row");
+    }
+
     res.status(201).json({
       assignmentId: freshAssignment._id,
       jobId,
@@ -81,5 +97,151 @@ const create_assignment = async (req: Request, res: Response) => {
   }
 };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const runListQuery = async (findResult: any, sortSpec: any, limit?: number) => {
+  if (findResult && typeof findResult.sort === "function") {
+    let q = findResult.sort(sortSpec);
+    if (typeof limit === "number" && q && typeof q.limit === "function") {
+      q = q.limit(limit);
+    }
+    if (q && typeof q.lean === "function") {
+      return await q.lean();
+    }
+    return await q;
+  }
+  return await findResult;
+};
+
+const list_assignments = async (_req: Request, res: Response) => {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const docs = (await runListQuery((Assignment as any).find({}), { createdAt: -1 }, undefined)) as any[];
+    const items = (docs ?? []).map((d: any) => ({
+      _id: String(d._id),
+      title: d.title,
+      difficulty: d.difficulty,
+      mode: d.mode,
+      createdAt: d.createdAt,
+    }));
+    res.status(200).json({ items });
+  } catch (err) {
+    logger.error({ err }, "Failed to list assignments");
+    res.status(500).json({ error: "Failed to list assignments" });
+  }
+};
+
+const list_users = async (req: Request, res: Response) => {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = (await (auth.api as any).listUsers({
+      headers: fromNodeHeaders(req.headers),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    }) as any) as { users?: any[] };
+    const items = (result.users ?? []).map((u: any) => ({
+      id: String(u.id),
+      email: u.email,
+      name: u.name,
+      role: u.role ?? "user",
+    }));
+    res.status(200).json({ items });
+  } catch (err) {
+    logger.error({ err }, "Failed to list users");
+    res.status(500).json({ error: "Failed to list users" });
+  }
+};
+
+const roleBodySchema = z.object({
+  role: z.enum(["admin", "user"]),
+});
+
+const set_user_role = async (req: Request, res: Response) => {
+  const rawId: unknown = (req.params as Record<string, unknown>).id;
+  const targetId = Array.isArray(rawId) ? rawId[0] : (rawId as string);
+  if (!targetId) {
+    res.status(400).json({ error: "User id is required" });
+    return;
+  }
+  const parsed = roleBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "role must be admin or user" });
+    return;
+  }
+  const to = parsed.data.role;
+
+  try {
+    const { sharedMongoClient } = await import("../../data/db/client");
+    const usersCollection = sharedMongoClient.db().collection("user");
+    let target = await usersCollection.findOne({ id: targetId });
+    if (!target) {
+      try {
+        target = await usersCollection.findOne({ _id: targetId as never });
+      } catch {
+        target = null;
+      }
+    }
+    if (!target) {
+      res.status(404).json({ error: "User not found" });
+      return;
+    }
+    const from = String((target as Record<string, unknown>).role ?? "user");
+    if (from === to) {
+      res.status(200).json({ user: { id: targetId, role: to } });
+      return;
+    }
+    if (from === "admin" && to === "user") {
+      const adminCount = await usersCollection.countDocuments({ role: "admin" });
+      if (adminCount <= 1) {
+        res.status(409).json({ error: "Cannot demote the last admin" });
+        return;
+      }
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const updated = (await (auth.api as any).setRole({
+      headers: fromNodeHeaders(req.headers),
+      body: { userId: targetId, role: to },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    }) as any) as { user?: unknown };
+
+    try {
+      await AuditLog.create({
+        actorId: String(req.user?.id ?? "unknown"),
+        action: "role.change",
+        targetType: "user",
+        targetId: String(targetId),
+        meta: { from, to },
+      });
+    } catch (auditErr) {
+      logger.error({ auditErr }, "Failed to write role.change audit row");
+    }
+
+    res.status(200).json({ user: updated.user ?? { id: targetId, role: to } });
+  } catch (err) {
+    logger.error({ err }, "Failed to set user role");
+    res.status(500).json({ error: "Failed to set user role" });
+  }
+};
+
+const list_audit = async (req: Request, res: Response) => {
+  try {
+    const raw = Number((req.query as Record<string, unknown>)?.limit ?? 50);
+    const limit = Number.isFinite(raw)
+      ? Math.min(200, Math.max(1, Math.floor(raw)))
+      : 50;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rows = (await runListQuery((AuditLog as any).find({}), { at: -1 }, limit)) as any[];
+    res.status(200).json({ items: rows ?? [] });
+  } catch (err) {
+    logger.error({ err }, "Failed to list audit log");
+    res.status(500).json({ error: "Failed to list audit log" });
+  }
+};
+
 export default create_assignment;
-export { create_assignment };
+export {
+  create_assignment,
+  list_assignments,
+  list_users,
+  set_user_role,
+  list_audit,
+};
