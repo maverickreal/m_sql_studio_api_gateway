@@ -132,13 +132,30 @@ const list_assignments = async (_req: Request, res: Response) => {
 
 const list_users = async (req: Request, res: Response) => {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result = (await (auth.api as any).listUsers({
-      headers: fromNodeHeaders(req.headers),
+    let users: any[] = [];
+    try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    }) as any) as { users?: any[] };
-    const items = (result.users ?? []).map((u: any) => ({
-      id: String(u.id),
+      const result = (await (auth.api as any).listUsers({
+        headers: fromNodeHeaders(req.headers),
+        query: { limit: 100 },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      })) as any;
+      users = result?.users ?? [];
+    } catch (apiErr) {
+      logger.warn({ apiErr }, "auth.api.listUsers failed; falling back to user collection");
+    }
+    if (users.length === 0) {
+      const { sharedMongoClient } = await import("../../data/db/client");
+      users = await sharedMongoClient
+        .db()
+        .collection("user")
+        .find({})
+        .project({ email: 1, name: 1, role: 1 })
+        .limit(100)
+        .toArray();
+    }
+    const items = users.map((u: any) => ({
+      id: String(u.id ?? u._id),
       email: u.email,
       name: u.name,
       role: u.role ?? "user",
@@ -171,14 +188,13 @@ const set_user_role = async (req: Request, res: Response) => {
   try {
     const { sharedMongoClient } = await import("../../data/db/client");
     const usersCollection = sharedMongoClient.db().collection("user");
-    let target = await usersCollection.findOne({ id: targetId });
-    if (!target) {
-      try {
-        target = await usersCollection.findOne({ _id: targetId as never });
-      } catch {
-        target = null;
-      }
+    const { ObjectId } = await import("mongodb");
+    const or: Record<string, unknown>[] = [{ id: targetId }];
+    if (ObjectId.isValid(targetId)) {
+      or.push({ _id: new ObjectId(targetId) });
+      or.push({ _id: targetId });
     }
+    const target = await usersCollection.findOne({ $or: or });
     if (!target) {
       res.status(404).json({ error: "User not found" });
       return;
