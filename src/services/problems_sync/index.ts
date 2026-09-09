@@ -3,15 +3,19 @@ import { join, sep } from "node:path";
 import { z } from "zod/v4";
 import { Problem } from "../../data/db/models/problem";
 import { SyncState } from "../../data/db/models/sync_state";
+import { Assignment } from "../../data/db/models/assignment";
+import { AssignmentSolution } from "../../data/db/models/assignment_solution";
 import { envVars, logger } from "../../config";
 import {
   PROBLEMS_SYNC_STATE_ID,
   ASSIGNMENT_DIFFICULTY,
   ASSIGNMENT_ACCESS_LEVEL,
+  getSandboxDBSchemaIdForAssignment,
 } from "../../utils";
 import type { ProblemsSyncJobPayload } from "../job_queue";
 import { Pool } from 'pg';
 import { executeTestInIsolatedSchema, checkDenyList, loadDatasetSql, type TestProblem, type DenyViolation } from "../test_executor";
+import TaskQueueClient from "../job_queue";
 
 // ---------------------------------------------------------------------------
 // Minimal YAML subset parser.
@@ -435,9 +439,84 @@ export const processProblemsSyncJob = async (
     }
   }
 
+  // Create test pool for tests-before-write gate
+  const { Pool } = await import('pg');
+  const testPool = new Pool({
+    host: envVars.SANDBOX_PG_HOST,
+    port: envVars.SANDBOX_PG_PORT,
+    user: envVars.SANDBOX_PG_USER,
+    password: envVars.SANDBOX_PG_PASSWORD,
+    database: envVars.SANDBOX_PG_DATABASE,
+  });
+
+  // datasets directory is next to the problems directory
+  const datasetsDir = localDir
+    ? join(localDir, "..", "datasets")
+    : "datasets";
+
   const result = await applyProblemFiles(files ?? [], {
     gitSha: data.afterSha,
+    testPool,
+    datasetsDir,
   });
+
+  // Close test pool after use
+  await testPool.end();
+
+  // After tests pass and problems upserted, create Assignment + AssignmentSolution + enqueue seed job
+  if (result.upserted > 0 && data.files) {
+    for (const file of data.files) {
+      if (!isProblemPath(file.path) || file.status === 'removed' || !file.content) continue;
+      const parsed = parseAndValidate(file.content, file.path);
+      if (!parsed) continue;
+
+      try {
+        // Create Assignment
+        const assignment = await Assignment.findOneAndUpdate(
+          { title: parsed.title },
+          {
+            $set: {
+              title: parsed.title,
+              description: parsed.description,
+              difficulty: parsed.difficulty,
+              mode: parsed.mode,
+              sampleInput: parsed.sampleInput,
+              sampleOutput: parsed.sampleOutput,
+              pgSchemaReady: false,
+              origin: parsed.origin,
+              contributor: parsed.contributor,
+            },
+          },
+          { upsert: true, new: true },
+        );
+
+        // Create AssignmentSolution
+        await AssignmentSolution.findOneAndUpdate(
+          { assignmentId: assignment._id },
+          {
+            $set: {
+              assignmentId: assignment._id,
+              solutionSql: parsed.solutionSql,
+              validationSql: parsed.validationSql,
+              initSql: parsed.initSql,
+              orderMatters: parsed.orderMatters,
+            },
+          },
+          { upsert: true },
+        );
+
+        // Enqueue admin seed job
+        await TaskQueueClient.enqueueAdminAssignmentSeedJob({
+          assignmentId: assignment._id,
+          initSql: parsed.initSql,
+        });
+
+        logger.info({ assignmentId: assignment._id }, "Created Assignment + AssignmentSolution + enqueued seed job");
+      } catch (err) {
+        logger.error({ err, problemId: parsed.id }, "Failed to create Assignment/Solution/seed job");
+      }
+    }
+  }
 
   if (data.forced && headIds) {
     result.tombstoned += await tombstoneIdsNotIn(headIds);
