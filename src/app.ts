@@ -12,6 +12,7 @@ import {
   GlobalRateLimitMware,
 } from "./middleware/";
 import { apiV1Router, internalRouter } from "./routes";
+import webhookRouter from "./routes/webhooks";
 import { CORS_ALLOWED_METHODS, EXPRESS_REQ_BODY_LIMIT } from "./utils";
 
 const app = express();
@@ -40,12 +41,20 @@ app.use(GlobalRateLimitMware);
 
 app.all("/api/auth/*splat", toNodeHandler(auth));
 
-app.use(express.json({ limit: EXPRESS_REQ_BODY_LIMIT }));
+app.use(
+  express.json({
+    limit: EXPRESS_REQ_BODY_LIMIT,
+    verify: (req, _res, buf) => {
+      (req as unknown as { rawBody?: Buffer }).rawBody = buf;
+    },
+  }),
+);
 app.use(express.urlencoded({ extended: true, limit: EXPRESS_REQ_BODY_LIMIT }));
 
 app.use(apiLogger);
 
 app.use("/api/v1", apiV1Router);
+app.use("/api/webhooks", webhookRouter);
 app.use("/internal", internalRouter);
 
 app.use(errorHandler);

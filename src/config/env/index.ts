@@ -30,6 +30,12 @@ const envVarsSchema = z.object({
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GITHUB_CLIENT_ID: z.string().optional(),
   GITHUB_CLIENT_SECRET: z.string().optional(),
+  GITHUB_WEBHOOK_SECRET: z.string().nonempty().optional(),
+  GITHUB_PROBLEMS_REPO: z
+    .string()
+    .nonempty()
+    .default("maverickreal/m_sql_studio_problems"),
+  GITHUB_PROBLEMS_LOCAL_DIR: z.string().nonempty().optional(),
   DEFAULT_ADMIN_EMAIL: z.email().nonoptional(),
   DEFAULT_ADMIN_PASSWORD: z.string().nonempty().nonoptional(),
   ADMIN_SECRET_CODE: z.string().nonempty().nonoptional(),

@@ -5,6 +5,7 @@ import {
   BULLMQ_JOB_NAME,
   ADMIN_ASSIGNMENT_SEED_JOB_NAME,
   CLEANUP_JOB_NAME,
+  PROBLEMS_SYNC_JOB_NAME,
   BULLMQ_JOB_FAILURE_MESSAGE,
   ASSIGNMENT_SEED_JOB_MAX_ATTEMPTS,
 } from "../../utils";
@@ -25,6 +26,19 @@ interface SqlJobPayload {
 export interface AdminAssignmentSeedJobPayload {
   assignmentId: Types.ObjectId;
   initSql: string;
+}
+
+export interface ProblemsSyncJobPayload {
+  deliveryId: string;
+  ref?: string;
+  afterSha?: string;
+  forced?: boolean;
+  commits?: Array<{
+    added?: string[];
+    modified?: string[];
+    removed?: string[];
+  }>;
+  reason?: string;
 }
 
 interface JobStatusResponse {
@@ -107,6 +121,19 @@ class TaskQueueClient {
 
     return id;
   }
+  static async enqueueProblemsSyncJob(data: ProblemsSyncJobPayload) {
+    const { id } = await TaskQueueClient.clientInst!.add(
+      PROBLEMS_SYNC_JOB_NAME,
+      data,
+      {
+        removeOnComplete: { age: JOB_TTL_S },
+        removeOnFail: { age: JOB_TTL_S },
+      },
+    );
+
+    return id;
+  }
+
   static async ping(): Promise<void> {
     await TaskQueueClient.clientInst!.getJobCounts();
   }

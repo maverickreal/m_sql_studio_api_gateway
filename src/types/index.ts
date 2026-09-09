@@ -30,6 +30,7 @@ declare global {
     interface Request {
       user: AuthUser | null;
       session: AuthSessionData | null;
+      rawBody?: Buffer;
     }
   }
 }

@@ -1,0 +1,422 @@
+import { readdir, readFile } from "node:fs/promises";
+import { join, sep } from "node:path";
+import { z } from "zod/v4";
+import { Problem } from "../../data/db/models/problem";
+import { SyncState } from "../../data/db/models/sync_state";
+import { envVars, logger } from "../../config";
+import {
+  PROBLEMS_SYNC_STATE_ID,
+  ASSIGNMENT_DIFFICULTY,
+  ASSIGNMENT_ACCESS_LEVEL,
+} from "../../utils";
+import type { ProblemsSyncJobPayload } from "../job_queue";
+
+// ---------------------------------------------------------------------------
+// Minimal YAML subset parser.
+//
+// No YAML dependency is vendored in the gateway, so this module parses only
+// the flat subset emitted by problem files: top-level `key: value` scalars,
+// `key: |` / `key: |-` block literals, and `key:` + `- item` string lists.
+// Anything else (nested maps, anchors, tabs) throws and the file is skipped
+// without failing the whole job.
+// ---------------------------------------------------------------------------
+
+type Scalar = string | number | boolean | null;
+
+const parseScalar = (raw: string): Scalar => {
+  const t = raw.trim();
+  if (t === "" || t === "~" || t === "null") return null;
+  if (t === "true") return true;
+  if (t === "false") return false;
+  if (/^-?\d+$/.test(t)) return Number(t);
+  if (t.startsWith('"') && t.endsWith('"') && t.length >= 2) {
+    return t
+      .slice(1, -1)
+      .replace(/\\n/g, "\n")
+      .replace(/\\t/g, "\t")
+      .replace(/\\"/g, '"')
+      .replace(/\\\\/g, "\\");
+  }
+  if (t.startsWith("'") && t.endsWith("'") && t.length >= 2) {
+    return t.slice(1, -1).replace(/''/g, "'");
+  }
+  return t;
+};
+
+const parseProblemYamlSubset = (raw: string): Record<string, unknown> => {
+  const doc: Record<string, unknown> = {};
+  const lines = raw.split("\n");
+  let i = 0;
+
+  const indentOf = (line: string): number => line.match(/^ */)![0].length;
+
+  while (i < lines.length) {
+    const line = lines[i]!;
+    if (line.trim() === "" || line.trimStart().startsWith("#")) {
+      i += 1;
+      continue;
+    }
+    if (line.startsWith(" ") || line.startsWith("\t")) {
+      throw new Error(`Unexpected indented line ${i + 1} without a parent key`);
+    }
+    const m = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
+    if (!m) throw new Error(`Unparseable line ${i + 1}: ${line}`);
+    const key = m[1]!;
+    const rest = m[2]!;
+    if (key in doc) throw new Error(`Duplicate key: ${key}`);
+
+    if (rest === "|" || rest === "|-" || rest === ">") {
+      const keepNewline = rest !== "|-";
+      i += 1;
+      const block: string[] = [];
+      while (
+        i < lines.length &&
+        (lines[i]!.trim() === "" || indentOf(lines[i]!) > 0)
+      ) {
+        const bl = lines[i]!;
+        block.push(
+          bl.trim() === "" ? "" : bl.replace(/^  /, "").replace(/^ /, ""),
+        );
+        i += 1;
+      }
+      while (block.length > 0 && block[block.length - 1] === "") block.pop();
+      doc[key] = block.join("\n") + (keepNewline ? "\n" : "");
+      continue;
+    }
+
+    if (rest !== "") {
+      doc[key] = parseScalar(rest);
+      i += 1;
+      continue;
+    }
+
+    // `key:` followed by a `- item` list.
+    i += 1;
+    const items: Scalar[] = [];
+    while (i < lines.length && lines[i]!.trim() !== "") {
+      const item = lines[i]!;
+      const lm = item.match(/^\s+-\s+(.*)$/);
+      if (!lm) break;
+      items.push(parseScalar(lm[1]!));
+      i += 1;
+    }
+    if (items.length === 0) throw new Error(`Empty block for key: ${key}`);
+    doc[key] = items;
+  }
+
+  return doc;
+};
+
+// ---------------------------------------------------------------------------
+// Validation (mirrors schemas/problem-v1.json; strict: LeetCode extras fail)
+// ---------------------------------------------------------------------------
+
+const UUID_V7_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const ProblemYamlSchema = z.strictObject({
+  id: z.string().regex(UUID_V7_RE, "id must be UUID v7"),
+  slug: z.string().min(1).regex(/^[a-z0-9-]+$/, "slug must be URL-safe"),
+  title: z.string().min(1),
+  description: z.string().min(1),
+  difficulty: z.enum(ASSIGNMENT_DIFFICULTY),
+  mode: z.enum(ASSIGNMENT_ACCESS_LEVEL),
+  category: z.string().min(1),
+  sampleInput: z.array(z.string().min(1)).min(1),
+  sampleOutput: z.string().min(1),
+  initSql: z.string().min(1),
+  solutionSql: z.string().min(1).optional(),
+  validationSql: z.string().min(1).optional(),
+  orderMatters: z.boolean(),
+  author: z.string().min(1),
+  license: z.string().min(1),
+  schema_version: z.literal(1),
+});
+
+type ParsedProblem = z.infer<typeof ProblemYamlSchema>;
+
+export interface ProblemFileChange {
+  path: string;
+  status: "added" | "modified" | "removed";
+  content?: string;
+  sha?: string;
+}
+
+export interface ProblemsSyncJobData extends ProblemsSyncJobPayload {
+  // Test/dev escape hatch: explicit file list bypasses local-dir fetching.
+  files?: ProblemFileChange[];
+  // Forced-resync HEAD ids when the tree cannot be listed (tests).
+  headIds?: string[];
+}
+
+export interface ProblemsSyncResult {
+  upserted: number;
+  skipped: number;
+  tombstoned: number;
+}
+
+const isProblemPath = (p: string): boolean =>
+  p.startsWith("problems/") && p.endsWith(".yaml");
+
+const categoryOf = (p: string): string | null => {
+  const parts = p.split("/");
+  return parts.length === 3 ? (parts[1] ?? null) : null;
+};
+
+const parseAndValidate = (
+  raw: string,
+  path: string,
+): ParsedProblem | null => {
+  let doc: Record<string, unknown>;
+  try {
+    doc = parseProblemYamlSubset(raw);
+  } catch (err) {
+    logger.warn({ err, path }, "Skipping problem file: unparseable YAML");
+    return null;
+  }
+  const parsed = ProblemYamlSchema.safeParse(doc);
+  if (!parsed.success) {
+    logger.warn(
+      { path, issues: parsed.error.issues.map((x) => x.message) },
+      "Skipping problem file: schema validation failed",
+    );
+    return null;
+  }
+  if (parsed.data.category !== categoryOf(path)) {
+    logger.warn(
+      { path, category: parsed.data.category },
+      "Skipping problem file: category does not match directory",
+    );
+    return null;
+  }
+  return parsed.data;
+};
+
+export const applyProblemFiles = async (
+  files: ProblemFileChange[],
+  opts?: { gitSha?: string },
+): Promise<ProblemsSyncResult> => {
+  let upserted = 0;
+  let skipped = 0;
+  let tombstoned = 0;
+
+  for (const file of files) {
+    if (!isProblemPath(file.path)) continue;
+
+    if (file.status === "removed" || file.content == null) {
+      if (file.status !== "removed") {
+        logger.warn({ path: file.path }, "Skipping problem file: no content");
+        skipped += 1;
+        continue;
+      }
+      await Problem.findOneAndUpdate(
+        { path: file.path, deletedAt: null },
+        {
+          $set: {
+            deletedAt: new Date(),
+            ...(opts?.gitSha === undefined ? {} : { gitSha: opts.gitSha }),
+          },
+        },
+        {},
+      );
+      tombstoned += 1;
+      continue;
+    }
+
+    const parsed = parseAndValidate(file.content, file.path);
+    if (!parsed) {
+      skipped += 1;
+      continue;
+    }
+
+    try {
+      const gitSha = opts?.gitSha ?? file.sha;
+      await Problem.findOneAndUpdate(
+        { id: parsed.id },
+        {
+          $set: {
+            ...parsed,
+            path: file.path,
+            ...(gitSha === undefined ? {} : { gitSha }),
+            deletedAt: null,
+          },
+        },
+        { upsert: true },
+      );
+      upserted += 1;
+    } catch (err) {
+      logger.warn({ err, path: file.path }, "Skipping problem file: upsert failed");
+      skipped += 1;
+    }
+  }
+
+  return { upserted, skipped, tombstoned };
+};
+
+export const tombstoneIdsNotIn = async (
+  headIds: string[],
+): Promise<number> => {
+  const stale = await Problem.find(
+    { id: { $nin: headIds }, deletedAt: null },
+    { id: 1 },
+  ).lean();
+  if (stale.length === 0) return 0;
+  await Problem.updateMany(
+    { id: { $in: stale.map((d) => d.id) } },
+    { $set: { deletedAt: new Date() } },
+  );
+  return stale.length;
+};
+
+const listLocalProblemFiles = async (dir: string): Promise<string[]> => {
+  const out: string[] = [];
+  const walk = async (abs: string, rel: string) => {
+    const entries = await readdir(abs, { withFileTypes: true });
+    for (const e of entries) {
+      const a = join(abs, e.name);
+      const r = rel === "" ? e.name : `${rel}/${e.name}`;
+      if (e.isDirectory()) await walk(a, r);
+      else if (e.isFile() && r.startsWith("problems/") && r.endsWith(".yaml")) {
+        out.push(r.split(sep).join("/"));
+      }
+    }
+  };
+  await walk(dir, "");
+  return out;
+};
+
+const loadLocalChanges = async (
+  dir: string,
+  data: ProblemsSyncJobPayload,
+): Promise<{ files: ProblemFileChange[]; headIds?: string[] }> => {
+  if (data.forced) {
+    const paths = await listLocalProblemFiles(dir);
+    const files: ProblemFileChange[] = [];
+    for (const p of paths) {
+      try {
+        files.push({
+          path: p,
+          status: "modified",
+          content: await readFile(join(dir, p), "utf8"),
+        });
+      } catch (err) {
+        logger.warn({ err, path: p }, "Skipping problem file: unreadable");
+      }
+    }
+    return { files, headIds: undefined };
+  }
+
+  const changed = new Map<string, "added" | "modified" | "removed">();
+  for (const c of data.commits ?? []) {
+    for (const p of c.added ?? []) if (!changed.has(p)) changed.set(p, "added");
+    for (const p of c.modified ?? []) if (!changed.has(p)) changed.set(p, "modified");
+    for (const p of c.removed ?? []) changed.set(p, "removed");
+  }
+  const files: ProblemFileChange[] = [];
+  for (const [p, status] of changed) {
+    if (!isProblemPath(p)) continue;
+    if (status === "removed") {
+      files.push({ path: p, status });
+      continue;
+    }
+    try {
+      files.push({ path: p, status, content: await readFile(join(dir, p), "utf8") });
+    } catch (err) {
+      logger.warn(
+        { err, path: p },
+        "Skipping problem file: missing from local dir (GitHub blob fetch is a later slice)",
+      );
+    }
+  }
+  return { files };
+};
+
+const fetchRemoteChanges = async (
+  data: ProblemsSyncJobPayload,
+): Promise<ProblemFileChange[]> => {
+  // No local fixture dir and no embedded files: without a GitHub App token
+  // (later slice) only removals can be applied from the push payload.
+  const files: ProblemFileChange[] = [];
+  for (const c of data.commits ?? []) {
+    for (const p of c.removed ?? []) {
+      if (isProblemPath(p)) files.push({ path: p, status: "removed" });
+    }
+  }
+  if ((data.commits ?? []).length > 0 && files.length === 0) {
+    try {
+      const repo = envVars.GITHUB_PROBLEMS_REPO;
+      const sha = data.afterSha;
+      if (sha) {
+        const res = await fetch(
+          `https://raw.githubusercontent.com/${repo}/${sha}/problems`,
+          { signal: AbortSignal.timeout(5000) },
+        );
+        logger.info(
+          { repo, sha, status: res.status },
+          "Remote problem tree probe (full fetch is a later slice)",
+        );
+      }
+    } catch (err) {
+      logger.warn({ err }, "Remote problem probe failed; applying removals only");
+    }
+  }
+  return files;
+};
+
+export const processProblemsSyncJob = async (
+  data: ProblemsSyncJobData,
+): Promise<ProblemsSyncResult> => {
+  let files = data.files;
+  let headIds = data.headIds;
+  const localDir = envVars.GITHUB_PROBLEMS_LOCAL_DIR;
+
+  if (!files) {
+    if (localDir) {
+      const loaded = await loadLocalChanges(localDir, data);
+      files = loaded.files;
+      if (data.forced && !headIds) {
+        headIds = [];
+        for (const f of files) {
+          if (f.content) {
+            const parsed = parseAndValidate(f.content, f.path);
+            if (parsed) headIds.push(parsed.id);
+          }
+        }
+      }
+    } else {
+      files = await fetchRemoteChanges(data);
+    }
+  }
+
+  const result = await applyProblemFiles(files ?? [], {
+    gitSha: data.afterSha,
+  });
+
+  if (data.forced && headIds) {
+    result.tombstoned += await tombstoneIdsNotIn(headIds);
+  }
+
+  try {
+    await SyncState.findOneAndUpdate(
+      { _id: PROBLEMS_SYNC_STATE_ID },
+      {
+        $set: {
+          repo: envVars.GITHUB_PROBLEMS_REPO,
+          lastSha: data.afterSha,
+          lastDeliveryId: data.deliveryId,
+          lastSyncAt: new Date(),
+        },
+      },
+      { upsert: true },
+    );
+  } catch (err) {
+    logger.error({ err }, "Failed to update problems sync_state");
+    throw err;
+  }
+
+  logger.info(
+    { deliveryId: data.deliveryId, ...result },
+    "Problems sync job done",
+  );
+  return result;
+};

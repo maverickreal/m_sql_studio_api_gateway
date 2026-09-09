@@ -109,9 +109,25 @@ const trigger_cleanup = async (_req: Request, res: Response) => {
   }
 };
 
+const trigger_problems_sync = async (req: Request, res: Response) => {
+  try {
+    const forced = (req.body as { forced?: unknown } | undefined)?.forced === true;
+    const jobId = await TaskQueueClient.enqueueProblemsSyncJob({
+      deliveryId: `manual-${Date.now()}`,
+      reason: "manual",
+      forced,
+    });
+    res.status(202).json({ jobId });
+  } catch (err) {
+    logger.error({ err }, "Failed to enqueue problems sync job!");
+    res.status(500).json({ error: "Failed to enqueue problems sync job!" });
+  }
+};
+
 export {
   cleanup_assignment,
   confirm_assignment,
   get_old_schemas,
   trigger_cleanup,
+  trigger_problems_sync,
 };
