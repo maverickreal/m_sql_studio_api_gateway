@@ -55,6 +55,7 @@ const {
     findByIdAndDelete: vi.fn().mockResolvedValue({}),
     findById: vi.fn().mockResolvedValue(null),
     find: vi.fn().mockReturnValue({
+      sort: vi.fn().mockReturnThis(),
       skip: vi.fn().mockReturnThis(),
       limit: vi.fn().mockReturnThis(),
       lean: vi.fn().mockResolvedValue([]),
@@ -179,6 +180,7 @@ describe("Assignments API Integration", () => {
     it("should return 200 and paginated list of assignments", async () => {
       const mockList = [{ _id: validId, title: "Test", difficulty: "easy" }];
       (Assignment.find as any).mockReturnValue({
+        sort: vi.fn().mockReturnThis(),
         skip: vi.fn().mockReturnThis(),
         limit: vi.fn().mockReturnThis(),
         lean: vi.fn().mockResolvedValue(mockList),

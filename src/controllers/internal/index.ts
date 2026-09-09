@@ -8,6 +8,10 @@ import { getSandboxDBSchemaIdForAssignment } from "../../utils";
 import { SANDBOX_SCHEMA_TTL_DAYS } from "../../utils";
 import { TaskQueueClient } from "../../services";
 import { envVars, logger } from "../../config";
+import {
+  parseCollectionQuery,
+  type CollectionQueryConfig,
+} from "../../utils";
 
 const cleanup_assignment = async (req: Request, res: Response) => {
   const id = req.params.id as string;
@@ -69,6 +73,16 @@ const confirm_assignment = async (req: Request, res: Response) => {
   }
 };
 
+const OLD_SCHEMAS_QUERY_CONFIG: CollectionQueryConfig = {
+  sortFields: ["_id"],
+  filterFields: {},
+  searchFields: [],
+  defaultSort: "_id",
+  defaultOrder: "asc",
+  defaultLimit: 100,
+  maxLimit: 500,
+};
+
 const get_old_schemas = async (req: Request, res: Response) => {
   const rawTtl = req.query.ttlDays;
   const ttlDays =
@@ -81,6 +95,18 @@ const get_old_schemas = async (req: Request, res: Response) => {
     return;
   }
 
+  // ADR 004 P6: defensive page/limit cap. ttlDays stays the domain selector;
+  // filter/sort/q are not implemented for this internal endpoint.
+  const parsed = parseCollectionQuery(
+    req.query as Record<string, unknown>,
+    OLD_SCHEMAS_QUERY_CONFIG,
+  );
+
+  if (parsed.error !== undefined) {
+    res.status(parsed.error.status).json(parsed.error.body);
+    return;
+  }
+
   try {
     const cutoff = new Date(Date.now() - ttlDays * 24 * 60 * 60 * 1000);
     const stale = await Assignment.find(
@@ -88,11 +114,20 @@ const get_old_schemas = async (req: Request, res: Response) => {
       { _id: 1 },
     ).lean();
 
-    const schemaNames = stale.map((doc) =>
-      getSandboxDBSchemaIdForAssignment(`${doc._id}`),
+    const allNames = stale.map((doc) =>
+      getSandboxDBSchemaIdForAssignment(`${(doc as { _id: unknown })._id}`),
     );
+    const total = allNames.length;
+    const schemaNames = allNames.slice(parsed.skip, parsed.skip + parsed.limit);
 
-    res.status(200).json({ schemaNames, count: schemaNames.length });
+    res.status(200).json({
+      schemaNames,
+      count: schemaNames.length,
+      page: parsed.page,
+      limit: parsed.limit,
+      total,
+      totalPages: total === 0 ? 0 : Math.ceil(total / parsed.limit),
+    });
   } catch (err) {
     logger.error({ err }, "Failed to list old schemas for cleanup!");
     res.status(500).json({ error: "Failed to list old schemas!" });

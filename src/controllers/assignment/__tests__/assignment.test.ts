@@ -42,10 +42,12 @@ describe('Assignment Controller', () => {
     it('should return 200 with paginated assignments', async () => {
       const mockAssignments = [{ _id: '1', title: 'Test Assignment', difficulty: 'easy' }];
       (Assignment.find as any).mockReturnValue({
+        sort: vi.fn().mockReturnThis(),
         skip: vi.fn().mockReturnThis(),
         limit: vi.fn().mockReturnThis(),
         lean: vi.fn().mockResolvedValue(mockAssignments),
       });
+      (Assignment.countDocuments as any).mockResolvedValue(1);
 
       req = { query: {} };
       await retrieve_all_assignments(req as Request, res as Response);
@@ -55,22 +57,36 @@ describe('Assignment Controller', () => {
         { _id: 1, title: 1, difficulty: 1, mode: 1 },
       );
       expect(statusMock).toHaveBeenCalledWith(200);
-      expect(jsonMock).toHaveBeenCalledWith({ assignments: mockAssignments });
+      expect(jsonMock).toHaveBeenCalledWith({
+        assignments: mockAssignments,
+        page: 1,
+        limit: 20,
+        total: 1,
+        totalPages: 1,
+      });
     });
 
     it('should respect page and limit query params', async () => {
       const mockAssignments = [{ _id: '2', title: 'Test 2', difficulty: 'medium' }];
       (Assignment.find as any).mockReturnValue({
+        sort: vi.fn().mockReturnThis(),
         skip: vi.fn().mockReturnThis(),
         limit: vi.fn().mockReturnThis(),
         lean: vi.fn().mockResolvedValue(mockAssignments),
       });
+      (Assignment.countDocuments as any).mockResolvedValue(21);
 
       req = { query: { page: '2', limit: '10' } };
       await retrieve_all_assignments(req as Request, res as Response);
 
       expect(statusMock).toHaveBeenCalledWith(200);
-      expect(jsonMock).toHaveBeenCalledWith({ assignments: mockAssignments });
+      expect(jsonMock).toHaveBeenCalledWith({
+        assignments: mockAssignments,
+        page: 2,
+        limit: 10,
+        total: 21,
+        totalPages: 3,
+      });
     });
   });
 

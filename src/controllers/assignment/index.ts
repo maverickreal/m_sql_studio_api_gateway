@@ -5,33 +5,68 @@ import {
   ASSIGNMENT_PAGINATION_DEFAULT_PAGE,
   ASSIGNMENT_PAGINATION_MAX_LIMIT,
   ASSIGNMENT_PAGINATION_DEFAULT_LIMIT,
+  ASSIGNMENT_DIFFICULTY,
+  ASSIGNMENT_ACCESS_LEVEL,
+  parseCollectionQuery,
+  type CollectionQueryConfig,
 } from "../../utils";
 
+const ASSIGNMENTS_QUERY_CONFIG: CollectionQueryConfig = {
+  sortFields: ["createdAt", "title"],
+  filterFields: {
+    difficulty: Object.values(ASSIGNMENT_DIFFICULTY),
+    mode: Object.values(ASSIGNMENT_ACCESS_LEVEL),
+  },
+  searchFields: ["title", "description"],
+  defaultLimit: ASSIGNMENT_PAGINATION_DEFAULT_LIMIT,
+  maxLimit: ASSIGNMENT_PAGINATION_MAX_LIMIT,
+};
+
 const retrieve_all_assignments = async (req: Request, res: Response) => {
-  const page = Math.max(
-    1,
-    Number(req.query.page) || ASSIGNMENT_PAGINATION_DEFAULT_PAGE,
+  const parsed = parseCollectionQuery(
+    req.query as Record<string, unknown>,
+    ASSIGNMENTS_QUERY_CONFIG,
   );
 
-  let limit: number =
-    Number(req.query.limit) || ASSIGNMENT_PAGINATION_DEFAULT_LIMIT;
-  limit = Math.min(ASSIGNMENT_PAGINATION_MAX_LIMIT, Math.max(1, limit));
+  if (parsed.error !== undefined) {
+    res.status(parsed.error.status).json(parsed.error.body);
+    return;
+  }
 
-  const assignments = await Assignment.find(
-    { pgSchemaReady: true },
-    {
-      _id: 1,
-      title: 1,
-      difficulty: 1,
-      mode: 1,
-    },
-  )
-    .skip((page - 1) * limit)
-    .limit(limit)
-    .lean();
+  // Backward-compat clamp from before the ADR: page is echoed ≥ 1.
+  const page = Math.max(ASSIGNMENT_PAGINATION_DEFAULT_PAGE, parsed.page);
+
+  const mongoFilter = {
+    pgSchemaReady: true,
+    ...parsed.filterQuery,
+    ...(parsed.searchQuery ?? {}),
+  };
+
+  const [total, assignments] = await Promise.all([
+    Assignment.countDocuments(mongoFilter),
+    Assignment.find(
+      mongoFilter,
+      {
+        _id: 1,
+        title: 1,
+        difficulty: 1,
+        mode: 1,
+      },
+    )
+      .sort(parsed.sortQuery)
+      .skip((page - 1) * parsed.limit)
+      .limit(parsed.limit)
+      .lean(),
+  ]);
 
   res.set("Cache-Control", "public, max-age=15");
-  res.status(200).json({ assignments });
+  res.status(200).json({
+    assignments,
+    page,
+    limit: parsed.limit,
+    total,
+    totalPages: total === 0 ? 0 : Math.ceil(total / parsed.limit),
+  });
 };
 
 const retrieve_assignment = async (req: Request, res: Response) => {
