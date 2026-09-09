@@ -10,6 +10,8 @@ import {
   ASSIGNMENT_ACCESS_LEVEL,
 } from "../../utils";
 import type { ProblemsSyncJobPayload } from "../job_queue";
+import { Pool } from 'pg';
+import { executeTestInIsolatedSchema, checkDenyList, loadDatasetSql, type TestProblem, type DenyViolation } from "../test_executor";
 
 // ---------------------------------------------------------------------------
 // Minimal YAML subset parser.
@@ -122,12 +124,16 @@ const ProblemYamlSchema = z.strictObject({
   difficulty: z.enum(ASSIGNMENT_DIFFICULTY),
   mode: z.enum(ASSIGNMENT_ACCESS_LEVEL),
   category: z.string().min(1),
+  datasets: z.array(z.string().min(1)).default([]),
   sampleInput: z.array(z.string().min(1)).min(1),
   sampleOutput: z.string().min(1),
   initSql: z.string().min(1),
-  solutionSql: z.string().min(1).optional(),
+  solutionSql: z.string().min(1),
   validationSql: z.string().min(1).optional(),
+  overlaySql: z.string().min(1).optional(),
   orderMatters: z.boolean(),
+  origin: z.enum(["first-party", "community"]).default("first-party"),
+  contributor: z.string().min(1).optional(),
   author: z.string().min(1),
   license: z.string().min(1),
   schema_version: z.literal(1),
@@ -194,7 +200,7 @@ const parseAndValidate = (
 
 export const applyProblemFiles = async (
   files: ProblemFileChange[],
-  opts?: { gitSha?: string },
+  opts?: { gitSha?: string; testPool?: Pool; datasetsDir?: string },
 ): Promise<ProblemsSyncResult> => {
   let upserted = 0;
   let skipped = 0;
@@ -227,6 +233,47 @@ export const applyProblemFiles = async (
     if (!parsed) {
       skipped += 1;
       continue;
+    }
+
+    // Deny-list enforcement on all SQL fields
+    const sqlFields = ['initSql', 'solutionSql', 'validationSql', 'overlaySql'];
+    let denyViolations: DenyViolation[] = [];
+    for (const field of sqlFields) {
+      const sql = (parsed as any)[field];
+      if (sql) {
+        denyViolations.push(...checkDenyList(sql).map(v => ({ ...v, sql: `${field}: ${v.sql}` })));
+      }
+    }
+    if (denyViolations.length > 0) {
+      logger.warn(
+        { path: file.path, violations: denyViolations.map(v => v.pattern) },
+        "Skipping problem file: deny-list violation",
+      );
+      skipped += 1;
+      continue;
+    }
+
+    // Tests before write: run tests in isolated PG schema
+    if (opts?.testPool && opts?.datasetsDir) {
+      const testProblem: TestProblem = {
+        datasets: (parsed.datasets || []).map((slug: string) => ({ slug })),
+        overlaySql: parsed.overlaySql,
+        initSql: parsed.initSql,
+        solutionSql: parsed.solutionSql,
+        validationSql: parsed.validationSql,
+        sampleOutput: parsed.sampleOutput,
+        orderMatters: parsed.orderMatters,
+        mode: parsed.mode,
+      };
+      const testResult = await executeTestInIsolatedSchema(testProblem, opts.datasetsDir, opts.testPool);
+      if (!testResult.passed) {
+        logger.warn(
+          { path: file.path, error: testResult.error },
+          "Skipping problem file: tests failed (zero DB write)",
+        );
+        skipped += 1;
+        continue;
+      }
     }
 
     try {

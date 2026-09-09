@@ -19,8 +19,10 @@ const AssignmentSchema = new Schema(
     },
     sampleOutput: { type: String, required: true, minLength: 1 },
     pgSchemaReady: { type: Boolean, required: false, default: false },
+    origin: { type: String, required: false, enum: ["first-party", "community"], default: "first-party" },
+    contributor: { type: String, required: false },
   },
-  { timestamps: true },
+  { timestamps: true }
 );
 
 const AssignmentValidatorSchema = {

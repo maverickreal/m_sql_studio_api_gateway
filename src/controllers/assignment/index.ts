@@ -16,6 +16,7 @@ const ASSIGNMENTS_QUERY_CONFIG: CollectionQueryConfig = {
   filterFields: {
     difficulty: Object.values(ASSIGNMENT_DIFFICULTY),
     mode: Object.values(ASSIGNMENT_ACCESS_LEVEL),
+    origin: ["first-party", "community"],
   },
   searchFields: ["title", "description"],
   defaultLimit: ASSIGNMENT_PAGINATION_DEFAULT_LIMIT,
@@ -51,6 +52,8 @@ const retrieve_all_assignments = async (req: Request, res: Response) => {
         title: 1,
         difficulty: 1,
         mode: 1,
+        origin: 1,
+        contributor: 1,
       },
     )
       .sort(parsed.sortQuery)

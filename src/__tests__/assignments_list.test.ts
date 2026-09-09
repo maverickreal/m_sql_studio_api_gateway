@@ -60,7 +60,7 @@ describe("GET /api/v1/assignments envelope & query handling", () => {
     });
     expect(mockFind).toHaveBeenCalledWith(
       expect.objectContaining({ pgSchemaReady: true }),
-      { _id: 1, title: 1, difficulty: 1, mode: 1 }
+      { _id: 1, title: 1, difficulty: 1, mode: 1, origin: 1, contributor: 1 }
     );
   });
 
