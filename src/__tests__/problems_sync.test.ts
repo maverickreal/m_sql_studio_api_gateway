@@ -90,13 +90,18 @@ description: A test problem
 difficulty: easy
 mode: read
 category: joins
+datasets:
+  - sample
 sampleInput:
   - SELECT 1
 sampleOutput: result
 initSql: CREATE TABLE test (id INT);
 solutionSql: SELECT 1 as result
+validationSql: SELECT 1
+overlaySql: SELECT 1
 orderMatters: true
 origin: first-party
+contributor: test
 author: test
 license: MIT
 schema_version: 1

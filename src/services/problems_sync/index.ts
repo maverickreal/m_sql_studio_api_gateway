@@ -10,11 +10,10 @@ import {
   PROBLEMS_SYNC_STATE_ID,
   ASSIGNMENT_DIFFICULTY,
   ASSIGNMENT_ACCESS_LEVEL,
-  getSandboxDBSchemaIdForAssignment,
 } from "../../utils";
 import type { ProblemsSyncJobPayload } from "../job_queue";
 import { Pool } from 'pg';
-import { executeTestInIsolatedSchema, checkDenyList, loadDatasetSql, type TestProblem, type DenyViolation } from "../test_executor";
+import { executeTestInIsolatedSchema, checkDenyList, type TestProblem, type DenyViolation } from "../test_executor";
 import TaskQueueClient from "../job_queue";
 
 // ---------------------------------------------------------------------------

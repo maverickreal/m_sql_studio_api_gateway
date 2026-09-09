@@ -1,15 +1,13 @@
-import { Pool, Client, type PoolClient, type QueryResult } from 'pg';
-import { z } from 'zod/v4';
+import { Pool } from 'pg';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { envVars, logger } from '../../config';
+import { logger } from '../../config';
 
 // Test execution config
 const STATEMENT_TIMEOUT_MS = 5000;
-const MAX_ROWS = 10000;
 
 // Deny-list patterns
-const SQL_DENY_PATTERNS = [
+export const SQL_DENY_PATTERNS = [
   { pattern: /\bCOPY\b/i, name: 'COPY' },
   { pattern: /\bGRANT\b/i, name: 'GRANT' },
   { pattern: /\bREVOKE\b/i, name: 'REVOKE' },
@@ -77,7 +75,9 @@ export async function executeTestInIsolatedSchema(
   datasetsDir: string,
   pool: Pool,
 ): Promise<TestResult> {
-  const schemaName = `test_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+  // Use crypto.randomUUID for deterministic unique schema names
+  const { randomUUID } = await import('crypto');
+  const schemaName = `test_${randomUUID().replace(/-/g, '_')}`;
   const client = await pool.connect();
   try {
     // Create isolated schema
