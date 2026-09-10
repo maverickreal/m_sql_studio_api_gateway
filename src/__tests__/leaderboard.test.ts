@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import request from "supertest";
 
-const { mockAggregate, mockDistinct, mockFindById } = vi.hoisted(() => ({
+const { mockAggregate, mockDistinct, mockFindOne } = vi.hoisted(() => ({
   mockAggregate: vi.fn(),
   mockDistinct: vi.fn(),
-  mockFindById: vi.fn(),
+  mockFindOne: vi.fn(),
 }));
 
 vi.mock("../data/db/models/user_pass", () => ({
@@ -16,7 +16,7 @@ vi.mock("../data/db/models/user_pass", () => ({
 
 vi.mock("../data/db/models/user_profile", () => ({
   UserProfile: {
-    findById: mockFindById,
+    findOne: mockFindOne,
   },
 }));
 
@@ -46,7 +46,7 @@ describe("GET /api/v1/leaderboard", () => {
       { _id: "user-3", passes: 1, lastPassAt: new Date("2026-09-10T02:00:00Z") },
     ]);
     mockDistinct.mockResolvedValue(["user-1", "user-2", "user-3"]);
-    mockFindById.mockReturnValue({
+    mockFindOne.mockReturnValue({
       select: vi.fn().mockReturnThis(),
       lean: vi.fn().mockResolvedValue({ displayName: "Alice" }),
     });
@@ -66,7 +66,7 @@ describe("GET /api/v1/leaderboard", () => {
       { _id: "user-2", passes: 3, lastPassAt: new Date("2026-09-10T01:00:00Z") },
     ]);
     mockDistinct.mockResolvedValue(["user-1", "user-2", "user-3"]);
-    mockFindById.mockReturnValue({
+    mockFindOne.mockReturnValue({
       select: vi.fn().mockReturnThis(),
       lean: vi.fn().mockResolvedValue({ displayName: "Bob" }),
     });
@@ -85,7 +85,7 @@ describe("GET /api/v1/leaderboard", () => {
       { _id: "user-2", passes: 3, lastPassAt: new Date("2026-09-10T00:00:00Z") },
     ]);
     mockDistinct.mockResolvedValue(["user-1", "user-2"]);
-    mockFindById.mockReturnValue({
+    mockFindOne.mockReturnValue({
       select: vi.fn().mockReturnThis(),
       lean: vi.fn().mockResolvedValue({ displayName: "Alice" }),
     });

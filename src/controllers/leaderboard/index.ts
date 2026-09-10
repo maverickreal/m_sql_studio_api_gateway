@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
-import { UserPass } from "../../data/db/models/user_pass";
 import { PipelineStage } from "mongoose";
+import { UserPass } from "../../data/db/models/user_pass";
+import { UserProfile } from "../../data/db/models/user_profile";
 
 export interface LeaderboardEntry {
   userId: string;
@@ -22,16 +23,6 @@ const get_leaderboard = async (
   const limit = Math.min(parseInt(req.query.limit || "50", 10), 100);
   const offset = parseInt(req.query.offset || "0", 10);
 
-  // Check if UserProfile model is available
-  let UserProfileModel: { findById: (id: string) => Promise<{ displayName: string } | null> } | null = null;
-  try {
-    const mod = await import("../../data/db/models/user_profile");
-    UserProfileModel = mod.UserProfile;
-  } catch {
-    // UserProfile not available (Slice PF not landed)
-  }
-
-  // Aggregation pipeline
   const pipeline: PipelineStage[] = [
     {
       $group: {
@@ -58,11 +49,10 @@ const get_leaderboard = async (
 
   const enrichedEntries: LeaderboardEntry[] = await Promise.all(
     entries.map(async (entry) => {
-      let displayName: string | null = null;
-      if (UserProfileModel) {
-        const profile = await UserProfileModel.findById(entry._id).select("displayName").lean();
-        displayName = profile?.displayName ?? null;
-      }
+      const profile = await UserProfile.findOne({ userId: entry._id })
+        .select("displayName")
+        .lean();
+      const displayName = profile?.displayName ?? null;
       return {
         userId: entry._id.toString(),
         displayName,
