@@ -3,7 +3,7 @@ import { z } from "zod/v4";
 
 const UserProfileSchema = new Schema(
   {
-    userId: { type: Schema.Types.ObjectId, ref: "user", required: true, unique: true },
+    userId: { type: String, required: true, unique: true, index: true },
     displayName: { type: String, required: true, minLength: 1, maxLength: 50 },
     bio: { type: String, required: false, maxLength: 500, default: "" },
     avatarUrl: { type: String, required: false, default: null },
