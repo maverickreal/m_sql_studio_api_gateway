@@ -27,7 +27,7 @@ UserProfileSchema.index(
 );
 
 // Zod validator for PATCH body
-const ProfileUpdateValidatorSchema = {
+export const ProfileUpdateValidatorSchema = z.object({
   displayName: z.string().min(1).max(50).optional(),
   bio: z.string().max(500).optional(),
   avatarUrl: z.string().url().startsWith("https://").nullable().optional(),
@@ -38,7 +38,7 @@ const ProfileUpdateValidatorSchema = {
       publicProfile: z.boolean().optional(),
     })
     .optional(),
-};
+});
 
 type IUserProfile = InferSchemaType<typeof UserProfileSchema>;
 
@@ -49,4 +49,4 @@ const UserProfile = model<IUserProfile, UserProfileModel>(
   UserProfileSchema,
 );
 
-export { UserProfile, UserProfileModel, ProfileUpdateValidatorSchema };
+export { UserProfile, UserProfileModel, IUserProfile };

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { get_my_profile, update_my_profile, get_public_profile } from "../../../../controllers/profile";
-import { requireAuthMware } from "../../../../middleware";
+import { requireAuthMware, optionalAuthMware } from "../../../../middleware";
 
 const router = Router();
 
@@ -11,6 +11,6 @@ router.get("/me", requireAuthMware, get_my_profile);
 router.patch("/me", requireAuthMware, update_my_profile);
 
 // GET /api/v1/profile/:id — public (optional auth)
-router.get("/:id", get_public_profile); // requireAuthMware applied inside if needed
+router.get("/:id", optionalAuthMware, get_public_profile);
 
 export default router;

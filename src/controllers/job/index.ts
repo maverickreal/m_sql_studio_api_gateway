@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { TaskQueueClient } from "../../services";
+import { TaskQueueClient, PassRecorder } from "../../services";
 
 const get_job_status = async (
   req: Request<{ taskId: string }>,
@@ -28,6 +28,25 @@ const get_job_status = async (
   ) {
     res.status(403).json({ error: "Forbidden" });
     return;
+  }
+
+  // Record pass if job completed with passed: true
+  if (
+    jobStatus.status === "completed" &&
+    jobStatus.result &&
+    typeof jobStatus.result === "object" &&
+    "passed" in jobStatus.result &&
+    jobStatus.result.passed === true
+  ) {
+    const ownerUserId = jobStatus.ownerUserId;
+    const assignmentId = (jobStatus.result as Record<string, unknown>).assignmentId as string | undefined;
+    if (ownerUserId && assignmentId) {
+      await PassRecorder.recordPass({
+        userId: ownerUserId,
+        assignmentId,
+        taskId,
+      });
+    }
   }
 
   const { ownerUserId: _ownerUserId, ...body } = jobStatus;

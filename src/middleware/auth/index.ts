@@ -39,3 +39,25 @@ export const requireAdminMware = (
 
   next();
 };
+
+export const optionalAuthMware = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const session = await auth.api.getSession({
+      headers: fromNodeHeaders(req.headers),
+    });
+
+    if (session) {
+      req.user = session.user;
+      req.session = session.session;
+    }
+
+    next();
+  } catch {
+    // Optional auth: silently continue without user
+    next();
+  }
+};

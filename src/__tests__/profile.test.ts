@@ -1,289 +1,335 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { Request, Response } from "express";
+import request from "supertest";
 
-const mockUserProfile = vi.hoisted(() => ({
-  findOne: vi.fn(),
-  findOneAndUpdate: vi.fn(),
-  create: vi.fn(),
+const {
+  mockGetSession,
+  mockFindOne,
+  mockFindOneAndUpdate,
+} = vi.hoisted(() => ({
+  mockGetSession: vi.fn(),
+  mockFindOne: vi.fn(),
+  mockFindOneAndUpdate: vi.fn(),
 }));
 
-vi.mock("../data/db/models/user_profile", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../data/db/models/user_profile")>();
+vi.mock("../auth", () => ({
+  auth: {
+    api: {
+      getSession: mockGetSession,
+    },
+  },
+}));
+
+vi.mock("../data/db/models/user_profile", async () => {
+  // Export real zod schemas that work with z.object()
+  const { z } = await import("zod/v4");
+
+  const ProfileUpdateValidatorSchema = z.object({
+    displayName: z.string().min(1).max(50).optional(),
+    bio: z.string().max(500).optional(),
+    avatarUrl: z.string().url().startsWith("https://").nullable().optional(),
+    preferences: z
+      .object({
+        theme: z.enum(["system", "light", "dark"]).optional(),
+        emailNotifications: z.boolean().optional(),
+        publicProfile: z.boolean().optional(),
+      })
+      .optional(),
+  });
+
   return {
-    ...actual,
-    UserProfile: mockUserProfile,
+    UserProfile: {
+      findOne: mockFindOne,
+      findOneAndUpdate: mockFindOneAndUpdate,
+    },
+    ProfileUpdateValidatorSchema,
   };
 });
 
-import {
-  get_my_profile,
-  update_my_profile,
-  get_public_profile,
-} from "../controllers/profile";
+import app from "../app";
 
-function makeReq(overrides: Record<string, unknown> = {}): Request {
-  return {
-    params: {},
-    body: {},
+describe("Profile API — /api/v1/profile", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const mockProfile = (overrides: Partial<any> = {}) => ({
+    _id: "profile-1",
+    userId: "user-1",
+    displayName: "Test User",
+    bio: "Test bio",
+    avatarUrl: "https://example.com/avatar.png",
+    preferences: {
+      theme: "system",
+      emailNotifications: true,
+      publicProfile: true,
+    },
+    stats: {
+      assignmentsCompleted: 5,
+      totalExecutions: 20,
+      lastActiveAt: new Date("2026-09-10T00:00:00Z"),
+    },
+    createdAt: new Date("2026-01-01T00:00:00Z"),
+    updatedAt: new Date("2026-09-01T00:00:00Z"),
     ...overrides,
-  } as unknown as Request;
-}
-
-function makeRes(): Response {
-  const res: any = {
-    status: vi.fn().mockReturnThis(),
-    json: vi.fn().mockReturnThis(),
-  };
-  return res as Response;
-}
-
-describe("GET /profile/me", () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  it("returns 200 with profile for authenticated owner", async () => {
-    const profileDoc = {
-      _id: "p1",
-      userId: "user-1",
-      displayName: "Alice",
-      bio: "Hello",
-      avatarUrl: null,
-      preferences: { theme: "system", emailNotifications: true, publicProfile: true },
-      stats: { assignmentsCompleted: 3, totalExecutions: 10, lastActiveAt: null },
-      createdAt: new Date("2026-01-01T00:00:00Z"),
-      updatedAt: new Date("2026-09-01T00:00:00Z"),
-    };
-    const lean = vi.fn().mockResolvedValue(profileDoc);
-    mockUserProfile.findOne.mockReturnValue({ lean } as any);
-
-    const req = makeReq({ user: { id: "user-1", email: "a@x.com", role: "user" } });
-    const res = makeRes();
-
-    await get_my_profile(req, res);
-
-    expect(mockUserProfile.findOne).toHaveBeenCalledWith({ userId: "user-1" });
-    expect(res.status).toHaveBeenCalledWith(200);
-    const body = (res.json as any).mock.calls[0][0];
-    expect(body.profile.displayName).toBe("Alice");
-    expect(body.profile.userId).toBe("user-1");
-    expect(body.profile.preferences).toBeDefined();
   });
 
-  it("returns 404 when profile not found", async () => {
-    const lean = vi.fn().mockResolvedValue(null);
-    mockUserProfile.findOne.mockReturnValue({ lean } as any);
+  describe("GET /api/v1/profile/me", () => {
+    it("returns 401 when unauthenticated", async () => {
+      mockGetSession.mockResolvedValue(null);
 
-    const req = makeReq({ user: { id: "user-1", email: "a@x.com", role: "user" } });
-    const res = makeRes();
+      const res = await request(app).get("/api/v1/profile/me");
 
-    await get_my_profile(req, res);
-
-    expect(res.status).toHaveBeenCalledWith(404);
-    expect(res.json).toHaveBeenCalledWith({ error: "Profile not found" });
-  });
-});
-
-describe("PATCH /profile/me", () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  it("returns 200 with updated profile", async () => {
-    const updatedDoc = {
-      _id: "p1",
-      userId: "user-1",
-      displayName: "Alice Updated",
-      bio: "New bio",
-      avatarUrl: "https://example.com/a.png",
-      preferences: { theme: "dark", emailNotifications: true, publicProfile: true },
-      stats: { assignmentsCompleted: 4, totalExecutions: 11, lastActiveAt: null },
-      createdAt: new Date("2026-01-01T00:00:00Z"),
-      updatedAt: new Date("2026-09-10T00:00:00Z"),
-    };
-    const leanForFind = vi.fn().mockResolvedValue(null);
-    mockUserProfile.findOne.mockReturnValue({ lean: leanForFind } as any);
-    const leanForUpdate = vi.fn().mockResolvedValue(updatedDoc);
-    mockUserProfile.findOneAndUpdate.mockReturnValue({ lean: leanForUpdate } as any);
-
-    const req = makeReq({
-      user: { id: "user-1", email: "a@x.com", role: "user" },
-      body: { displayName: "Alice Updated", bio: "New bio", avatarUrl: "https://example.com/a.png", preferences: { theme: "dark" } },
+      expect(res.status).toBe(401);
+      expect(res.body).toEqual({ error: "Authentication required" });
     });
-    const res = makeRes();
 
-    await update_my_profile(req, res);
+    it("returns 404 when profile not found for authenticated user", async () => {
+      mockGetSession.mockResolvedValue({
+        user: { id: "user-1", email: "user@example.com", role: "user" },
+        session: { id: "session-1" },
+      });
+      mockFindOne.mockReturnValue({
+        lean: vi.fn().mockResolvedValue(null),
+      });
 
-    expect(res.status).toHaveBeenCalledWith(200);
-    const body = (res.json as any).mock.calls[0][0];
-    expect(body.profile.displayName).toBe("Alice Updated");
-    expect(body.profile.preferences.theme).toBe("dark");
-  });
+      const res = await request(app).get("/api/v1/profile/me");
 
-  it("returns 400 for invalid body", async () => {
-    const req = makeReq({
-      user: { id: "user-1", email: "a@x.com", role: "user" },
-      body: { avatarUrl: "not-a-url" },
+      expect(res.status).toBe(404);
+      expect(res.body).toEqual({ error: "Profile not found" });
     });
-    const res = makeRes();
 
-    await update_my_profile(req, res);
+    it("returns 200 with profile when authenticated owner", async () => {
+      mockGetSession.mockResolvedValue({
+        user: { id: "user-1", email: "user@example.com", role: "user" },
+        session: { id: "session-1" },
+      });
+      const profile = mockProfile();
+      mockFindOne.mockReturnValue({
+        lean: vi.fn().mockResolvedValue(profile),
+      });
 
-    expect(res.status).toHaveBeenCalledWith(400);
-  });
+      const res = await request(app).get("/api/v1/profile/me");
 
-  it("returns 409 when displayName is taken", async () => {
-    const lean = vi.fn().mockResolvedValue({ _id: "p2", userId: "user-99", displayName: "Taken" });
-    mockUserProfile.findOne.mockReturnValue({ lean } as any);
-
-    const req = makeReq({
-      user: { id: "user-1", email: "a@x.com", role: "user" },
-      body: { displayName: "Taken" },
+      expect(res.status).toBe(200);
+      expect(res.body.profile).toMatchObject({
+        userId: "user-1",
+        displayName: "Test User",
+        bio: "Test bio",
+        avatarUrl: "https://example.com/avatar.png",
+        preferences: {
+          theme: "system",
+          emailNotifications: true,
+          publicProfile: true,
+        },
+        stats: {
+          assignmentsCompleted: 5,
+          totalExecutions: 20,
+          lastActiveAt: "2026-09-10T00:00:00.000Z",
+        },
+      });
+      expect(res.body.profile.createdAt).toBeDefined();
+      expect(res.body.profile.updatedAt).toBeDefined();
     });
-    const res = makeRes();
-
-    await update_my_profile(req, res);
-
-    expect(res.status).toHaveBeenCalledWith(409);
-    expect(res.json).toHaveBeenCalledWith({ error: "Display name already taken" });
   });
 
-  it("returns 404 when profile missing during update", async () => {
-    const leanForFind = vi.fn().mockResolvedValue(null);
-    mockUserProfile.findOne.mockReturnValue({ lean: leanForFind } as any);
-    const leanForUpdate = vi.fn().mockResolvedValue(null);
-    mockUserProfile.findOneAndUpdate.mockReturnValue({ lean: leanForUpdate } as any);
+  describe("PATCH /api/v1/profile/me", () => {
+    it("returns 401 when unauthenticated", async () => {
+      mockGetSession.mockResolvedValue(null);
 
-    const req = makeReq({
-      user: { id: "user-1", email: "a@x.com", role: "user" },
-      body: { displayName: "New Name" },
+      const res = await request(app)
+        .patch("/api/v1/profile/me")
+        .send({ displayName: "New Name" });
+
+      expect(res.status).toBe(401);
+      expect(res.body).toEqual({ error: "Authentication required" });
     });
-    const res = makeRes();
 
-    await update_my_profile(req, res);
+    it("returns 400 when avatarUrl is not https", async () => {
+      mockGetSession.mockResolvedValue({
+        user: { id: "user-1", email: "user@example.com", role: "user" },
+        session: { id: "session-1" },
+      });
 
-    expect(res.status).toHaveBeenCalledWith(404);
-  });
-});
+      const res = await request(app)
+        .patch("/api/v1/profile/me")
+        .send({ avatarUrl: "http://example.com/avatar.png" });
 
-describe("GET /profile/:id", () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  it("returns 200 for public profile (no auth)", async () => {
-    const profileDoc = {
-      _id: "p2",
-      userId: "user-2",
-      displayName: "Bob",
-      bio: "Bobs bio",
-      avatarUrl: null,
-      preferences: { theme: "system", emailNotifications: true, publicProfile: true },
-      stats: { assignmentsCompleted: 7, totalExecutions: 21, lastActiveAt: null },
-      createdAt: new Date("2026-03-01T00:00:00Z"),
-      updatedAt: new Date("2026-09-05T00:00:00Z"),
-    };
-    const lean = vi.fn().mockResolvedValue(profileDoc);
-    mockUserProfile.findOne.mockReturnValue({ lean } as any);
-
-    const req = makeReq({ params: { id: "user-2" } });
-    const res = makeRes();
-
-    await get_public_profile(req, res);
-
-    expect(res.status).toHaveBeenCalledWith(200);
-    const body = (res.json as any).mock.calls[0][0];
-    expect(body.profile.displayName).toBe("Bob");
-    expect(body.profile.preferences).toBeUndefined();
-  });
-
-  it("returns 200 for private profile when accessed by owner", async () => {
-    const profileDoc = {
-      _id: "p2",
-      userId: "user-2",
-      displayName: "Bob",
-      bio: "Private",
-      avatarUrl: null,
-      preferences: { theme: "system", emailNotifications: false, publicProfile: false },
-      stats: { assignmentsCompleted: 7, totalExecutions: 21, lastActiveAt: null },
-      createdAt: new Date("2026-03-01T00:00:00Z"),
-      updatedAt: new Date("2026-09-05T00:00:00Z"),
-    };
-    const lean = vi.fn().mockResolvedValue(profileDoc);
-    mockUserProfile.findOne.mockReturnValue({ lean } as any);
-
-    const req = makeReq({
-      user: { id: "user-2", email: "b@x.com", role: "user" },
-      params: { id: "user-2" },
+      expect(res.status).toBe(400);
     });
-    const res = makeRes();
 
-    await get_public_profile(req, res);
+    it("returns 200 and updates profile when valid", async () => {
+      mockGetSession.mockResolvedValue({
+        user: { id: "user-1", email: "user@example.com", role: "user" },
+        session: { id: "session-1" },
+      });
+      const updatedProfile = mockProfile({ displayName: "Updated Name", bio: "Updated bio" });
+      mockFindOne.mockReturnValue({
+        lean: vi.fn().mockResolvedValue(null),
+      });
+      mockFindOneAndUpdate.mockReturnValue({
+        lean: vi.fn().mockResolvedValue(updatedProfile),
+      });
 
-    expect(res.status).toHaveBeenCalledWith(200);
-    const body = (res.json as any).mock.calls[0][0];
-    expect(body.profile.preferences).toBeDefined();
-  });
+      const res = await request(app)
+        .patch("/api/v1/profile/me")
+        .send({ displayName: "Updated Name", bio: "Updated bio" });
 
-  it("returns 404 for private profile accessed by other user", async () => {
-    const profileDoc = {
-      _id: "p2",
-      userId: "user-2",
-      displayName: "Bob",
-      bio: "Private",
-      avatarUrl: null,
-      preferences: { theme: "system", emailNotifications: false, publicProfile: false },
-      stats: { assignmentsCompleted: 7, totalExecutions: 21, lastActiveAt: null },
-      createdAt: new Date("2026-03-01T00:00:00Z"),
-      updatedAt: new Date("2026-09-05T00:00:00Z"),
-    };
-    const lean = vi.fn().mockResolvedValue(profileDoc);
-    mockUserProfile.findOne.mockReturnValue({ lean } as any);
-
-    const req = makeReq({
-      user: { id: "user-1", email: "a@x.com", role: "user" },
-      params: { id: "user-2" },
+      expect(res.status).toBe(200);
+      expect(res.body.profile.displayName).toBe("Updated Name");
+      expect(res.body.profile.bio).toBe("Updated bio");
     });
-    const res = makeRes();
 
-    await get_public_profile(req, res);
+    it("returns 409 when displayName is already taken", async () => {
+      mockGetSession.mockResolvedValue({
+        user: { id: "user-1", email: "user@example.com", role: "user" },
+        session: { id: "session-1" },
+      });
+      mockFindOne.mockReturnValue({
+        lean: vi.fn().mockResolvedValue(mockProfile({ displayName: "Taken Name" })),
+      });
 
-    expect(res.status).toHaveBeenCalledWith(404);
-    expect(res.json).toHaveBeenCalledWith({ error: "Profile not found" });
-  });
+      const res = await request(app)
+        .patch("/api/v1/profile/me")
+        .send({ displayName: "Taken Name" });
 
-  it("returns 200 for private profile when accessed by admin", async () => {
-    const profileDoc = {
-      _id: "p2",
-      userId: "user-2",
-      displayName: "Bob",
-      bio: "Private",
-      avatarUrl: null,
-      preferences: { theme: "system", emailNotifications: false, publicProfile: false },
-      stats: { assignmentsCompleted: 7, totalExecutions: 21, lastActiveAt: null },
-      createdAt: new Date("2026-03-01T00:00:00Z"),
-      updatedAt: new Date("2026-09-05T00:00:00Z"),
-    };
-    const lean = vi.fn().mockResolvedValue(profileDoc);
-    mockUserProfile.findOne.mockReturnValue({ lean } as any);
-
-    const req = makeReq({
-      user: { id: "admin-1", email: "admin@x.com", role: "admin" },
-      params: { id: "user-2" },
+      expect(res.status).toBe(409);
+      expect(res.body).toEqual({ error: "Display name already taken" });
     });
-    const res = makeRes();
-
-    await get_public_profile(req, res);
-
-    expect(res.status).toHaveBeenCalledWith(200);
-    const body = (res.json as any).mock.calls[0][0];
-    expect(body.profile.displayName).toBe("Bob");
-    expect(body.profile.preferences).toBeDefined();
   });
 
-  it("returns 404 when profile not found", async () => {
-    const lean = vi.fn().mockResolvedValue(null);
-    mockUserProfile.findOne.mockReturnValue({ lean } as any);
+  describe("GET /api/v1/profile/:id", () => {
+    it("returns 404 when profile not found", async () => {
+      mockGetSession.mockResolvedValue(null);
+      mockFindOne.mockReturnValue({
+        lean: vi.fn().mockResolvedValue(null),
+      });
 
-    const req = makeReq({ params: { id: "user-nonexistent" } });
-    const res = makeRes();
+      const res = await request(app).get("/api/v1/profile/nonexistent-id");
 
-    await get_public_profile(req, res);
+      expect(res.status).toBe(404);
+      expect(res.body).toEqual({ error: "Profile not found" });
+    });
 
-    expect(res.status).toHaveBeenCalledWith(404);
+    it("returns 200 with public profile for unauthenticated user", async () => {
+      mockGetSession.mockResolvedValue(null);
+      const profile = mockProfile({ preferences: { ...mockProfile().preferences, publicProfile: true } });
+      mockFindOne.mockReturnValue({
+        lean: vi.fn().mockResolvedValue(profile),
+      });
+
+      const res = await request(app).get("/api/v1/profile/user-1");
+
+      expect(res.status).toBe(200);
+      expect(res.body.profile).toMatchObject({
+        userId: "user-1",
+        displayName: "Test User",
+        bio: "Test bio",
+        avatarUrl: "https://example.com/avatar.png",
+        stats: {
+          assignmentsCompleted: 5,
+          totalExecutions: 20,
+          lastActiveAt: "2026-09-10T00:00:00.000Z",
+        },
+      });
+      expect(res.body.profile.preferences).toBeUndefined();
+    });
+
+    it("returns 404 for private profile when unauthenticated", async () => {
+      mockGetSession.mockResolvedValue(null);
+      const profile = mockProfile({ preferences: { ...mockProfile().preferences, publicProfile: false } });
+      mockFindOne.mockReturnValue({
+        lean: vi.fn().mockResolvedValue(profile),
+      });
+
+      const res = await request(app).get("/api/v1/profile/user-1");
+
+      expect(res.status).toBe(404);
+      expect(res.body).toEqual({ error: "Profile not found" });
+    });
+
+    it("returns 404 for private profile when accessed by other user", async () => {
+      mockGetSession.mockResolvedValue({
+        user: { id: "user-2", email: "other@example.com", role: "user" },
+        session: { id: "session-2" },
+      });
+      const profile = mockProfile({
+        userId: "user-1",
+        preferences: { ...mockProfile().preferences, publicProfile: false },
+      });
+      mockFindOne.mockReturnValue({
+        lean: vi.fn().mockResolvedValue(profile),
+      });
+
+      const res = await request(app).get("/api/v1/profile/user-1");
+
+      expect(res.status).toBe(404);
+      expect(res.body).toEqual({ error: "Profile not found" });
+    });
+
+    it("returns 200 with full profile for owner of private profile", async () => {
+      mockGetSession.mockResolvedValue({
+        user: { id: "user-1", email: "user@example.com", role: "user" },
+        session: { id: "session-1" },
+      });
+      const profile = mockProfile({
+        userId: "user-1",
+        preferences: { ...mockProfile().preferences, publicProfile: false },
+      });
+      mockFindOne.mockReturnValue({
+        lean: vi.fn().mockResolvedValue(profile),
+      });
+
+      const res = await request(app).get("/api/v1/profile/user-1");
+
+      expect(res.status).toBe(200);
+      expect(res.body.profile).toMatchObject({
+        userId: "user-1",
+        displayName: "Test User",
+        preferences: {
+          theme: "system",
+          emailNotifications: true,
+          publicProfile: false,
+        },
+      });
+    });
+
+    it("returns 200 with full profile for admin accessing private profile", async () => {
+      mockGetSession.mockResolvedValue({
+        user: { id: "admin-1", email: "admin@example.com", role: "admin" },
+        session: { id: "session-admin" },
+      });
+      const profile = mockProfile({
+        userId: "user-1",
+        preferences: { ...mockProfile().preferences, publicProfile: false },
+      });
+      mockFindOne.mockReturnValue({
+        lean: vi.fn().mockResolvedValue(profile),
+      });
+
+      const res = await request(app).get("/api/v1/profile/user-1");
+
+      expect(res.status).toBe(200);
+      expect(res.body.profile.preferences).toBeDefined();
+    });
+
+    it("returns 200 with public profile (no preferences) for other user when public", async () => {
+      mockGetSession.mockResolvedValue({
+        user: { id: "user-2", email: "other@example.com", role: "user" },
+        session: { id: "session-2" },
+      });
+      const profile = mockProfile({
+        userId: "user-1",
+        preferences: { ...mockProfile().preferences, publicProfile: true },
+      });
+      mockFindOne.mockReturnValue({
+        lean: vi.fn().mockResolvedValue(profile),
+      });
+
+      const res = await request(app).get("/api/v1/profile/user-1");
+
+      expect(res.status).toBe(200);
+      expect(res.body.profile.preferences).toBeUndefined();
+      expect(res.body.profile.userId).toBe("user-1");
+    });
   });
 });
