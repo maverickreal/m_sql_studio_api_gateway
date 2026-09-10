@@ -21,7 +21,10 @@ const update_my_profile = async (req: Request, res: Response) => {
   }
   const update = parsed.data;
   if (update.displayName) {
-    const existing = await UserProfile.findOne({ displayName: update.displayName, userId: { $ne: userId } });
+    const existing = await UserProfile.findOne({
+      displayName: update.displayName,
+      userId: { $ne: userId },
+    }).lean();
     if (existing) {
       res.status(409).json({ error: "Display name already taken" });
       return;
