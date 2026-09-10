@@ -282,7 +282,7 @@ export const applyProblemFiles = async (
       const testProblem: TestProblem = {
         datasets: (parsed.datasets || []).map((slug: string) => ({ slug })),
         overlaySql: parsed.overlaySql,
-        initSql: parsed.initSql,
+        initSql: (parsed.datasets || []).length > 0 ? undefined : parsed.initSql,
         solutionSql: parsed.solutionSql,
         validationSql: parsed.validationSql,
         sampleOutput,
@@ -528,7 +528,9 @@ export const processProblemsSyncJob = async (
           initSql += `${ds.schema}\n${ds.seed}\n`;
         }
         if (parsed.overlaySql) initSql += `${parsed.overlaySql}\n`;
-        if (parsed.initSql) initSql += `${parsed.initSql}\n`;
+        if (!(parsed.datasets || []).length && parsed.initSql) {
+          initSql += `${parsed.initSql}\n`;
+        }
 
         // Create Assignment
         const assignment = await Assignment.findOneAndUpdate(

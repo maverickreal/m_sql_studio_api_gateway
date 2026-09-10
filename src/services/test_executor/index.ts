@@ -124,10 +124,22 @@ export async function executeTestInIsolatedSchema(
       const result = await client.query(problem.solutionSql);
       
       if (problem.mode === 'read') {
-        // Compare to sampleOutput
         if (problem.sampleOutput) {
-          const actualRows = result.rows.map(r => Object.values(r).join('\t')).join('\n');
-          const expected = problem.sampleOutput.trim();
+          const cell = (v: unknown): string => {
+            if (v instanceof Date) return v.toISOString().slice(0, 10);
+            if (v == null) return "";
+            return String(v);
+          };
+          const stripGoldNoise = (s: string): string =>
+            s
+              .split("\n")
+              .filter((l) => !/^(psql:|ERROR:|DETAIL:)/.test(l))
+              .join("\n")
+              .trim();
+          const actualRows = result.rows
+            .map((r) => Object.values(r).map(cell).join("\t"))
+            .join("\n");
+          const expected = stripGoldNoise(problem.sampleOutput);
           const actual = actualRows.trim();
           
           if (problem.orderMatters) {
