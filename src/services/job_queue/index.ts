@@ -6,11 +6,13 @@ import {
   ADMIN_ASSIGNMENT_SEED_JOB_NAME,
   CLEANUP_JOB_NAME,
   PROBLEMS_SYNC_JOB_NAME,
+  PROBLEMS_SYNC_QUEUE_NAME,
   BULLMQ_JOB_FAILURE_MESSAGE,
   ASSIGNMENT_SEED_JOB_MAX_ATTEMPTS,
 } from "../../utils";
 import { logger, envVars } from "../../config";
 import { Types } from "mongoose";
+import { PassRecorder } from "../pass_recorder";
 
 interface SqlJobPayload {
   assignmentId: string;
@@ -50,20 +52,25 @@ interface JobStatusResponse {
 
 class TaskQueueClient {
   private static clientInst: Queue | null = null;
+  private static syncQueue: Queue | null = null;
 
   static connect() {
-    if (TaskQueueClient.clientInst !== null) {
-      return;
+    const connection = {
+      url: envVars.REDIS_URL,
+      maxRetriesPerRequest: null,
+      enableReadyCheck: false,
+      lazyConnect: false,
+    };
+    if (TaskQueueClient.clientInst === null) {
+      TaskQueueClient.clientInst = new Queue(envVars.BULLMQ_SQL_QUEUE_NAME, {
+        connection,
+      });
     }
-
-    TaskQueueClient.clientInst = new Queue(envVars.BULLMQ_SQL_QUEUE_NAME, {
-      connection: {
-        url: envVars.REDIS_URL,
-        maxRetriesPerRequest: null,
-        enableReadyCheck: false,
-        lazyConnect: false,
-      },
-    });
+    if (TaskQueueClient.syncQueue === null) {
+      TaskQueueClient.syncQueue = new Queue(PROBLEMS_SYNC_QUEUE_NAME, {
+        connection,
+      });
+    }
   }
 
   static async enqueue(data: SqlJobPayload) {
@@ -123,7 +130,7 @@ class TaskQueueClient {
     return id;
   }
   static async enqueueProblemsSyncJob(data: ProblemsSyncJobPayload) {
-    const { id } = await TaskQueueClient.clientInst!.add(
+    const { id } = await TaskQueueClient.syncQueue!.add(
       PROBLEMS_SYNC_JOB_NAME,
       data,
       {
@@ -169,10 +176,26 @@ class TaskQueueClient {
     return respBodyData;
   }
 
+  static async getJob(taskId: string) {
+    return TaskQueueClient.clientInst!.getJob(taskId);
+  }
+
+  static async recordPass(data: {
+    userId: string;
+    assignmentId: string;
+    taskId: string;
+  }): Promise<void> {
+    await PassRecorder.recordPass(data);
+  }
+
   static async disconnect(): Promise<void> {
     if (TaskQueueClient.clientInst) {
       await TaskQueueClient.clientInst.close();
       TaskQueueClient.clientInst = null;
+    }
+    if (TaskQueueClient.syncQueue) {
+      await TaskQueueClient.syncQueue.close();
+      TaskQueueClient.syncQueue = null;
     }
   }
 }

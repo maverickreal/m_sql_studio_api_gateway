@@ -13,7 +13,7 @@ import {
 } from "../../utils";
 import type { ProblemsSyncJobPayload } from "../job_queue";
 import { Pool } from 'pg';
-import { executeTestInIsolatedSchema, checkDenyList, type TestProblem, type DenyViolation } from "../test_executor";
+import { executeTestInIsolatedSchema, checkDenyList, loadDatasetSql, type TestProblem, type DenyViolation } from "../test_executor";
 import TaskQueueClient from "../job_queue";
 
 // ---------------------------------------------------------------------------
@@ -201,9 +201,19 @@ const parseAndValidate = (
   return parsed.data;
 };
 
+const goldNameFromProblemPath = (problemPath: string): string => {
+  const rel = problemPath.replace(/^problems\//, "").replace(/\.ya?ml$/i, "");
+  return `${rel.split("/").join("__")}.gold`;
+};
+
 export const applyProblemFiles = async (
   files: ProblemFileChange[],
-  opts?: { gitSha?: string; testPool?: Pool; datasetsDir?: string },
+  opts?: {
+    gitSha?: string;
+    testPool?: Pool;
+    datasetsDir?: string;
+    goldDir?: string;
+  },
 ): Promise<ProblemsSyncResult> => {
   let upserted = 0;
   let skipped = 0;
@@ -258,17 +268,42 @@ export const applyProblemFiles = async (
 
     // Tests before write: run tests in isolated PG schema
     if (opts?.testPool && opts?.datasetsDir) {
+      let sampleOutput = parsed.sampleOutput;
+      if (opts.goldDir) {
+        try {
+          sampleOutput = await readFile(
+            join(opts.goldDir, goldNameFromProblemPath(file.path)),
+            "utf8",
+          );
+        } catch {
+          // YAML sampleOutput is often a header sketch; gold is C2 SoT when present.
+        }
+      }
       const testProblem: TestProblem = {
         datasets: (parsed.datasets || []).map((slug: string) => ({ slug })),
         overlaySql: parsed.overlaySql,
         initSql: parsed.initSql,
         solutionSql: parsed.solutionSql,
         validationSql: parsed.validationSql,
-        sampleOutput: parsed.sampleOutput,
+        sampleOutput,
         orderMatters: parsed.orderMatters,
         mode: parsed.mode,
       };
-      const testResult = await executeTestInIsolatedSchema(testProblem, opts.datasetsDir, opts.testPool);
+      let testResult;
+      try {
+        testResult = await executeTestInIsolatedSchema(
+          testProblem,
+          opts.datasetsDir,
+          opts.testPool,
+        );
+      } catch (err) {
+        logger.warn(
+          { path: file.path, err },
+          "Skipping problem file: tests threw (zero DB write)",
+        );
+        skipped += 1;
+        continue;
+      }
       if (!testResult.passed) {
         logger.warn(
           { path: file.path, error: testResult.error },
@@ -465,15 +500,15 @@ export const processProblemsSyncJob = async (
     database: envVars.SANDBOX_PG_DATABASE,
   });
 
-  // datasets directory is next to the problems directory
-  const datasetsDir = localDir
-    ? join(localDir, "..", "datasets")
-    : "datasets";
+  // localDir is the problems repo root (problems/ + datasets/ + gold/).
+  const datasetsDir = localDir ? join(localDir, "datasets") : "datasets";
+  const goldDir = localDir ? join(localDir, "gold") : undefined;
 
   const result = await applyProblemFiles(files ?? [], {
     gitSha: data.afterSha,
     testPool,
     datasetsDir,
+    goldDir,
   });
 
   // Close test pool after use
@@ -487,6 +522,14 @@ export const processProblemsSyncJob = async (
       if (!parsed) continue;
 
       try {
+        let initSql = "";
+        for (const slug of parsed.datasets || []) {
+          const ds = await loadDatasetSql(slug, datasetsDir);
+          initSql += `${ds.schema}\n${ds.seed}\n`;
+        }
+        if (parsed.overlaySql) initSql += `${parsed.overlaySql}\n`;
+        if (parsed.initSql) initSql += `${parsed.initSql}\n`;
+
         // Create Assignment
         const assignment = await Assignment.findOneAndUpdate(
           { title: parsed.title },
@@ -514,7 +557,7 @@ export const processProblemsSyncJob = async (
               assignmentId: assignment._id,
               solutionSql: parsed.solutionSql,
               validationSql: parsed.validationSql,
-              initSql: parsed.initSql,
+              initSql,
               orderMatters: parsed.orderMatters,
             },
           },
@@ -524,7 +567,7 @@ export const processProblemsSyncJob = async (
         // Enqueue admin seed job
         await TaskQueueClient.enqueueAdminAssignmentSeedJob({
           assignmentId: assignment._id,
-          initSql: parsed.initSql,
+          initSql,
         });
 
         logger.info({ assignmentId: assignment._id }, "Created Assignment + AssignmentSolution + enqueued seed job");

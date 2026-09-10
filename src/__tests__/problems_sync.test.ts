@@ -68,7 +68,7 @@ import { Problem } from "../data/db/models/problem";
 import { Assignment } from "../data/db/models/assignment";
 import { AssignmentSolution } from "../data/db/models/assignment_solution";
 import { SyncState } from "../data/db/models/sync_state";
-import { checkDenyList, executeTestInIsolatedSchema } from "../services/test_executor";
+import { checkDenyList, executeTestInIsolatedSchema, loadDatasetSql } from "../services/test_executor";
 import TaskQueueClient from "../services/job_queue";
 import { readFile, readdir } from "node:fs/promises";
 
@@ -88,6 +88,7 @@ describe("processProblemsSyncJob", () => {
     readdir.mockResolvedValue([]);
     executeTestInIsolatedSchema.mockResolvedValue({ passed: true });
     checkDenyList.mockReturnValue([]);
+    loadDatasetSql.mockResolvedValue({ schema: "CREATE TABLE t (id INT);", seed: "INSERT INTO t VALUES (1);" });
   });
 
   afterEach(() => {

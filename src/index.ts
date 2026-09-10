@@ -1,15 +1,24 @@
+import { Worker } from "bullmq";
 import app from "./app";
 import { envVars, logger } from "./config";
 import { DBClient, CacheClient } from "./data";
 import { TaskQueueClient, SseSubscriber } from "./services";
+import { processProblemsSyncJob } from "./services/problems_sync";
 import { seedAdminUser } from "./auth";
 import {
   SERVER_START_FAILURE_EXIT_CODE,
   SERVER_KILL_SIGNAL_EXIT_CODE,
   ENV_MODE,
+  PROBLEMS_SYNC_QUEUE_NAME,
 } from "./utils";
 
+let problemsSyncWorker: Worker | null = null;
+
 const cleanup = async () => {
+  if (problemsSyncWorker) {
+    await problemsSyncWorker.close();
+    problemsSyncWorker = null;
+  }
   await SseSubscriber.disconnect();
   await TaskQueueClient.disconnect();
   await CacheClient.disconnect();
@@ -41,6 +50,30 @@ app
     await CacheClient.connect();
     await DBClient.connect();
     TaskQueueClient.connect();
+
+    problemsSyncWorker = new Worker(
+      PROBLEMS_SYNC_QUEUE_NAME,
+      async (job) => processProblemsSyncJob(job.data),
+      {
+        connection: {
+          url: envVars.REDIS_URL,
+          maxRetriesPerRequest: null,
+          enableReadyCheck: false,
+          lazyConnect: false,
+        },
+        concurrency: 1,
+      },
+    );
+    problemsSyncWorker.on("failed", (job, err) => {
+      logger.error(
+        { jobId: job?.id, err: err.message },
+        "Problems sync job failed",
+      );
+    });
+    logger.info(
+      { queue: PROBLEMS_SYNC_QUEUE_NAME },
+      "Problems sync worker started.",
+    );
 
     try {
       await TaskQueueClient.enqueueRepeatableCleanupJob(

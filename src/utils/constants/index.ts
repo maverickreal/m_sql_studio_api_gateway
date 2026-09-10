@@ -52,6 +52,7 @@ export const ASSIGNMENT_PAGINATION_DEFAULT_PAGE = 1;
 export const ASSIGNMENT_PAGINATION_DEFAULT_LIMIT = 20;
 export const ASSIGNMENT_PAGINATION_MAX_LIMIT = 100;
 export const PROBLEMS_SYNC_JOB_NAME = "client_sql_studio_problems_sync";
+export const PROBLEMS_SYNC_QUEUE_NAME = "m_sql_studio_problems_sync";
 export const GITHUB_DELIVERY_KEY_PREFIX = "github_delivery:";
 export const GITHUB_DELIVERY_TTL_S = 86400;
 export const DEV_WEBHOOK_SECRET = "dev-webhook-secret";
