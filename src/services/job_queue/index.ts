@@ -31,6 +31,7 @@ export interface AdminAssignmentSeedJobPayload {
 export interface ProblemsSyncJobPayload {
   deliveryId: string;
   ref?: string;
+  beforeSha?: string;
   afterSha?: string;
   forced?: boolean;
   commits?: Array<{

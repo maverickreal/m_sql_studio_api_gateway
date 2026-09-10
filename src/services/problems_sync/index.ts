@@ -420,6 +420,23 @@ export const processProblemsSyncJob = async (
   let headIds = data.headIds;
   const localDir = envVars.GITHUB_PROBLEMS_LOCAL_DIR;
 
+  // Drift handler §2.6: detect force-push / history rewrite via beforeSha vs stored lastSha
+  // If beforeSha exists and differs from stored lastSha (and it's not the zero SHA for new branch),
+  // trigger full resync from HEAD by setting forced=true and clearing files to force re-listing.
+  if (data.beforeSha && data.beforeSha !== "0000000000000000000000000000000000000000") {
+    const stored = await SyncState.findOne({ _id: PROBLEMS_SYNC_STATE_ID }).lean();
+    if (stored?.lastSha && data.beforeSha !== stored.lastSha) {
+      logger.info(
+        { beforeSha: data.beforeSha, storedLastSha: stored.lastSha, afterSha: data.afterSha },
+        "Drift detected: force-push or history rewrite — triggering full resync from HEAD",
+      );
+      // Force full resync: behave as if forced=true with no explicit files
+      data.forced = true;
+      files = undefined;
+      headIds = undefined;
+    }
+  }
+
   if (!files) {
     if (localDir) {
       const loaded = await loadLocalChanges(localDir, data);
@@ -463,8 +480,8 @@ export const processProblemsSyncJob = async (
   await testPool.end();
 
   // After tests pass and problems upserted, create Assignment + AssignmentSolution + enqueue seed job
-  if (result.upserted > 0 && data.files) {
-    for (const file of data.files) {
+  if (result.upserted > 0 && files) {
+    for (const file of files) {
       if (!isProblemPath(file.path) || file.status === 'removed' || !file.content) continue;
       const parsed = parseAndValidate(file.content, file.path);
       if (!parsed) continue;

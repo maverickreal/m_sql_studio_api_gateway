@@ -3,6 +3,7 @@ import { mongodbAdapter } from "better-auth/adapters/mongodb";
 import { admin } from "better-auth/plugins";
 import { envVars } from "../config";
 import { sharedMongoClient } from "../data/db/client";
+import { UserProfile } from "../data/db/models/user_profile";
 
 const mongoDb = sharedMongoClient.db();
 const socialProviders: Record<string, object> = {};
@@ -48,6 +49,14 @@ export const auth = betterAuth({
   ],
 });
 
+async function createProfileForUser(userId: string, displayName: string) {
+  try {
+    await UserProfile.create({ userId, displayName });
+  } catch (err) {
+    console.error("Failed to auto-create profile:", err);
+  }
+}
+
 export const seedAdminUser = async (
   email: string,
   password: string,
@@ -68,5 +77,8 @@ export const seedAdminUser = async (
 
   if (result?.user) {
     await usersCollection.updateOne({ email }, { $set: { role: "admin" } });
+    await createProfileForUser(result.user.id, name);
   }
 };
+
+export { createProfileForUser };

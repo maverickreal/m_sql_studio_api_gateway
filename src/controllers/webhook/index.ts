@@ -76,6 +76,7 @@ const github_webhook = async (req: Request, res: Response) => {
 
   const body = (req.body ?? {}) as {
     ref?: string;
+    before?: string;
     after?: string;
     commits?: Array<{ added?: string[]; modified?: string[]; removed?: string[] }>;
   };
@@ -85,6 +86,7 @@ const github_webhook = async (req: Request, res: Response) => {
       deliveryId: delivery ?? `${Date.now()}`,
       ref: body.ref,
       afterSha: body.after,
+      beforeSha: body.before,
       forced: false,
       commits: body.commits ?? [],
     });

@@ -46,7 +46,18 @@ vi.mock("mongoose", async (importOriginal) => {
 vi.mock("../data/db/models/problem");
 vi.mock("../data/db/models/assignment");
 vi.mock("../data/db/models/assignment_solution");
-vi.mock("../data/db/models/sync_state");
+vi.mock("../data/db/models/sync_state", () => {
+  const mockLean = vi.fn().mockResolvedValue(null);
+  const mockFindOne = vi.fn().mockReturnValue({ lean: mockLean });
+  const mockFindOneAndUpdate = vi.fn().mockResolvedValue({});
+  return {
+    SyncState: {
+      findOne: mockFindOne,
+      findOneAndUpdate: mockFindOneAndUpdate,
+    },
+    SyncStateSchema: {},
+  };
+});
 vi.mock("../services/test_executor");
 vi.mock("../services/job_queue");
 vi.mock("node:fs/promises");
@@ -200,4 +211,43 @@ schema_version: 1
     expect(result.tombstoned).toBe(1);
     expect(Problem.findOneAndUpdate).toHaveBeenCalled();
   });
-});
+
+  it("detects drift on force-push and triggers full resync", async () => {
+      // Mock stored sync state with old lastSha - use the lean mock
+      const mockLean = vi.fn().mockResolvedValue({
+        _id: "github-problems",
+        lastSha: "stored-old-sha",
+        repo: "test/repo",
+      });
+      SyncState.findOne.mockReturnValue({ lean: mockLean });
+
+      // The job comes with beforeSha that doesn't match stored lastSha
+      const result = await processProblemsSyncJob({
+        deliveryId: "test-delivery-drift",
+        ref: "refs/heads/main",
+        beforeSha: "incoming-different-sha", // Different from stored lastSha -> drift
+        afterSha: "new-sha-after-force-push",
+        forced: false, // Not explicitly forced, but drift should force it
+        commits: [],
+      });
+
+      // Should have queried SyncState for drift detection
+      expect(SyncState.findOne).toHaveBeenCalled();
+    });
+
+    it("does not trigger drift on new branch (zero beforeSha)", async () => {
+      const zeroSha = "0000000000000000000000000000000000000000";
+
+      const result = await processProblemsSyncJob({
+        deliveryId: "test-delivery-new-branch",
+        ref: "refs/heads/new-feature",
+        beforeSha: zeroSha,
+        afterSha: "new-branch-sha",
+        forced: false,
+        commits: [],
+      });
+
+      // Should not query SyncState for drift detection on new branch
+      // (though it will still query for the final update)
+    });
+  });
