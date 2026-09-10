@@ -81,6 +81,7 @@ describe("processProblemsSyncJob", () => {
     });
     Problem.updateMany.mockResolvedValue({});
     Assignment.findOneAndUpdate.mockResolvedValue({ _id: "507f1f77bcf86cd799439011" });
+    Assignment.findOne.mockReturnValue({ lean: vi.fn().mockResolvedValue(null) });
     AssignmentSolution.findOneAndUpdate.mockResolvedValue({});
     SyncState.findOneAndUpdate.mockResolvedValue({});
     TaskQueueClient.enqueueAdminAssignmentSeedJob.mockResolvedValue("seed-job-id");

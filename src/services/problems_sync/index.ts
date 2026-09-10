@@ -532,7 +532,9 @@ export const processProblemsSyncJob = async (
           initSql += `${parsed.initSql}\n`;
         }
 
-        // Create Assignment
+        const existing = await Assignment.findOne({ title: parsed.title }).lean();
+        const alreadyReady = existing?.pgSchemaReady === true;
+
         const assignment = await Assignment.findOneAndUpdate(
           { title: parsed.title },
           {
@@ -543,15 +545,14 @@ export const processProblemsSyncJob = async (
               mode: parsed.mode,
               sampleInput: parsed.sampleInput,
               sampleOutput: parsed.sampleOutput,
-              pgSchemaReady: false,
               origin: parsed.origin,
               contributor: parsed.contributor,
+              ...(alreadyReady ? {} : { pgSchemaReady: false }),
             },
           },
           { upsert: true, new: true },
         );
 
-        // Create AssignmentSolution
         await AssignmentSolution.findOneAndUpdate(
           { assignmentId: assignment._id },
           {
@@ -566,13 +567,21 @@ export const processProblemsSyncJob = async (
           { upsert: true },
         );
 
-        // Enqueue admin seed job
-        await TaskQueueClient.enqueueAdminAssignmentSeedJob({
-          assignmentId: assignment._id,
-          initSql,
-        });
-
-        logger.info({ assignmentId: assignment._id }, "Created Assignment + AssignmentSolution + enqueued seed job");
+        if (!alreadyReady) {
+          await TaskQueueClient.enqueueAdminAssignmentSeedJob({
+            assignmentId: assignment._id,
+            initSql,
+          });
+          logger.info(
+            { assignmentId: assignment._id },
+            "Created Assignment + AssignmentSolution + enqueued seed job",
+          );
+        } else {
+          logger.info(
+            { assignmentId: assignment._id },
+            "Updated Assignment; skipped seed (pgSchemaReady)",
+          );
+        }
       } catch (err) {
         logger.error({ err, problemId: parsed.id }, "Failed to create Assignment/Solution/seed job");
       }
