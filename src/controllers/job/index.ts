@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { TaskQueueClient, PassRecorder } from "../../services";
+import { maybeAttachOwnerHint } from "../../services/hint_stack";
 
 const get_job_status = async (
   req: Request<{ taskId: string }>,
@@ -50,7 +51,12 @@ const get_job_status = async (
   }
 
   const { ownerUserId: _ownerUserId, ...body } = jobStatus;
-  res.status(200).json(body);
+  const withHint = await maybeAttachOwnerHint(body, {
+    taskId,
+    ownerUserId: jobStatus.ownerUserId,
+    requesterId: requester?.id,
+  });
+  res.status(200).json(withHint);
 };
 
 export default get_job_status;

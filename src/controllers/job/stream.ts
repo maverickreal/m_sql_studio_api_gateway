@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { TaskQueueClient, SseSubscriber } from "../../services";
+import { maybeAttachOwnerHint } from "../../services/hint_stack";
 import { logger } from "../../config";
 
 const SSE_HEARTBEAT_MS = 25000;
@@ -109,6 +110,12 @@ const stream_job_status = async (
         logger.error({ err, taskId }, "Dropping malformed SSE job message!");
         return;
       }
+
+      payload = await maybeAttachOwnerHint(payload, {
+        taskId,
+        ownerUserId,
+        requesterId: requesterSnapshot?.id,
+      });
 
       try {
         res.write(`event: job-status\ndata: ${JSON.stringify(payload)}\n\n`);

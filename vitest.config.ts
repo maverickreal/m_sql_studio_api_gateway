@@ -17,6 +17,7 @@ export default defineConfig({
       SANDBOX_PG_PASSWORD: "test_pass",
       LOG_LEVEL: "info",
       ENV_MODE: "DEV",
+      HINT_ENABLED: "false",
       INTERNAL_API_KEY: "test-internal-api-key",
       BETTER_AUTH_SECRET: "12345678901234567890123456789012",
       BETTER_AUTH_URL: "http://localhost:8080",
