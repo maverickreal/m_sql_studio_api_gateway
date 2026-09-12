@@ -11,7 +11,7 @@ const envVarsSchema = z.object({
   CLIENT_URL: z.url().nonempty().nonoptional(),
   SERVER_PORT: z.coerce.number().int().nonoptional(),
   MONGO_URI: z.string().startsWith("mongodb").nonempty().nonoptional(),
-  REDIS_URL: z.url().nonempty().nonoptional(),
+  REDIS_URL: z.string().startsWith("redis").nonempty().nonoptional(),
   BULLMQ_SQL_QUEUE_NAME: z.string().nonempty().nonoptional(),
   SANDBOX_PG_HOST: z.string().nonempty().nonoptional(),
   SANDBOX_PG_PORT: z.coerce.number().int().nonoptional(),

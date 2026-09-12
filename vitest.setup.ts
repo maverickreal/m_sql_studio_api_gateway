@@ -13,15 +13,19 @@ const mockRedisClient = {
   quit: vi.fn().mockResolvedValue("OK"),
 };
 
-vi.mock("./src/data/cache", () => ({
-  default: {
-    connect: vi.fn().mockResolvedValue(undefined),
-    disconnect: vi.fn().mockResolvedValue(undefined),
-    get: vi.fn().mockResolvedValue(mockRedisClient),
-  },
-  CacheClient: {
-    connect: vi.fn().mockResolvedValue(undefined),
-    disconnect: vi.fn().mockResolvedValue(undefined),
-    get: vi.fn().mockResolvedValue(mockRedisClient),
-  },
-}));
+vi.mock("./src/data/cache", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return {
+    ...actual,
+    default: {
+      connect: vi.fn().mockResolvedValue(undefined),
+      disconnect: vi.fn().mockResolvedValue(undefined),
+      get: vi.fn().mockResolvedValue(mockRedisClient),
+    },
+    CacheClient: {
+      connect: vi.fn().mockResolvedValue(undefined),
+      disconnect: vi.fn().mockResolvedValue(undefined),
+      get: vi.fn().mockResolvedValue(mockRedisClient),
+    },
+  };
+});

@@ -1,2 +1,6 @@
-export { default as CacheClient } from "./cache";
+export {
+  default as CacheClient,
+  encodeRedisPassword,
+  encodedRedisUrl,
+} from "./cache";
 export * from "./db";

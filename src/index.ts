@@ -1,7 +1,7 @@
 import { Worker } from "bullmq";
 import app from "./app";
 import { envVars, logger } from "./config";
-import { DBClient, CacheClient } from "./data";
+import { DBClient, CacheClient, encodedRedisUrl } from "./data";
 import { TaskQueueClient, SseSubscriber } from "./services";
 import { processProblemsSyncJob } from "./services/problems_sync";
 import { seedAdminUser } from "./auth";
@@ -56,7 +56,7 @@ app
       async (job) => processProblemsSyncJob(job.data),
       {
         connection: {
-          url: envVars.REDIS_URL,
+          url: encodedRedisUrl,
           maxRetriesPerRequest: null,
           enableReadyCheck: false,
           lazyConnect: false,

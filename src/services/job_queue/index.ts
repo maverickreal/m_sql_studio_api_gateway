@@ -11,6 +11,7 @@ import {
   ASSIGNMENT_SEED_JOB_MAX_ATTEMPTS,
 } from "../../utils";
 import { logger, envVars } from "../../config";
+import { encodedRedisUrl } from "../../data/cache";
 import { Types } from "mongoose";
 import { PassRecorder } from "../pass_recorder";
 
@@ -56,7 +57,7 @@ class TaskQueueClient {
 
   static connect() {
     const connection = {
-      url: envVars.REDIS_URL,
+      url: encodedRedisUrl,
       maxRetriesPerRequest: null,
       enableReadyCheck: false,
       lazyConnect: false,
