@@ -64,6 +64,18 @@ const envVarsSchema = z.object({
   HINT_SAY: z.enum(["true", "false"]).default("false"),
   HINT_CONSENT_PATH: z.string().nonempty().default("./logs/say-consent.json"),
   HINT_AUDIT_PATH: z.string().nonempty().default("./logs/hint-audit.jsonl"),
+  AI_PROVIDER: z
+    .preprocess(
+      (val) => (typeof val === "string" ? val.toLowerCase() : val),
+      z.enum(["openai", "anthropic", "google", "ollama", "local"]),
+    )
+    .default("local"),
+  AI_API_KEY: z.string().optional(),
+  AI_MODEL: z.string().optional(),
+  AI_API_URL: z.preprocess(
+    (val) => (!val ? undefined : val),
+    z.url().optional(),
+  ),
 });
 
 const parsedEnvVarsBody = envVarsSchema.safeParse(process.env);

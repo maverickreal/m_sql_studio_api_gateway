@@ -92,3 +92,4 @@ const retrieve_assignment = async (req: Request, res: Response) => {
 };
 
 export { retrieve_all_assignments, retrieve_assignment };
+export { generate_assignment_hint } from "./hint";

@@ -4,6 +4,7 @@ import {
   retrieve_assignment,
   get_last_sql,
   save_last_sql,
+  generate_assignment_hint,
 } from "../../../../controllers";
 import clientSQLCodeRunRouter from "./execution";
 import { requireAuthMware, validateObjectId } from "../../../../middleware/";
@@ -11,6 +12,8 @@ import { requireAuthMware, validateObjectId } from "../../../../middleware/";
 const router = Router();
 
 router.use("/client-sql-code-run", clientSQLCodeRunRouter);
+
+router.post("/hint", requireAuthMware, generate_assignment_hint);
 
 router.get("/", retrieve_all_assignments);
 router.get("/:id", validateObjectId("id"), retrieve_assignment);
