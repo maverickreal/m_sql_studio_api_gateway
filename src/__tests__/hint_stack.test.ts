@@ -47,6 +47,7 @@ describe("HITL Hint Stack (ADR 005)", () => {
     it("treats localhost and 127.0.0.1 as on-box", () => {
       expect(isLoopbackUrl("http://127.0.0.1:11434/v1")).toBe(true);
       expect(isLoopbackUrl("http://localhost:11434/v1")).toBe(true);
+      expect(isLoopbackUrl("http://host.docker.internal:11434/v1")).toBe(true);
       expect(isLoopbackUrl("https://generativelanguage.googleapis.com/v1beta/openai")).toBe(
         false,
       );
@@ -458,5 +459,36 @@ describe("HITL Hint Stack (ADR 005)", () => {
       expect(health).toHaveProperty("ollama");
       expect(health).toHaveProperty("gemini");
     });
+  });
+
+  describe("live local LFM2.5 model (mlx-serve on 127.0.0.1:3208)", () => {
+    it("returns result.hint from local LFM2.5 when model is running", async () => {
+      vi.unstubAllGlobals();
+      const liveOllama = new OllamaHintProvider({
+        host: "http://127.0.0.1:3208/v1",
+        model: "LFM2.5-8B-A1B-MLX-6bit",
+      });
+      const health = await liveOllama.healthCheck();
+      if (health.status !== "up") {
+        console.warn("mlx-serve is not running, skipping live model assertion");
+        return;
+      }
+      const router = new HintRouter(
+        liveOllama,
+        undefined,
+        new InMemoryConsentStore(false),
+        new InMemoryAuditLogger(),
+      );
+      const result = await router.getHint({
+        taskId: "live-test-1",
+        userQuery: "SELECT * FORM users;",
+        schemaContext: "CREATE TABLE users (id int, name text);",
+        failureReason: 'syntax error at or near "FORM"',
+        attemptNumber: 1,
+      });
+      expect(result).not.toBeNull();
+      expect(result?.text).toBeTruthy();
+      expect(result?.model).toBe("LFM2.5-8B-A1B-MLX-6bit");
+    }, 20000);
   });
 });

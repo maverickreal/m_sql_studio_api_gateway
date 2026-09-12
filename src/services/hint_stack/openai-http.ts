@@ -6,7 +6,8 @@ export function isLoopbackUrl(url: string): boolean {
       hostname === "127.0.0.1" ||
       hostname === "::1" ||
       hostname === "[::1]" ||
-      hostname === "0.0.0.0"
+      hostname === "0.0.0.0" ||
+      hostname === "host.docker.internal"
     );
   } catch {
     return false;
@@ -34,7 +35,7 @@ Hint:`;
 }
 
 interface OpenAIChatResponse {
-  choices?: Array<{ message?: { content?: string } }>;
+  choices?: Array<{ message?: { content?: string; reasoning_content?: string; reasoning?: string } }>;
   usage?: { prompt_tokens?: number; completion_tokens?: number };
 }
 
@@ -46,7 +47,7 @@ export async function openaiChatCompletion(opts: {
   timeoutMs?: number;
 }): Promise<{ text: string; tokensIn: number; tokensOut: number }> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? 5000);
+  const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? 15000);
   try {
     const headers: Record<string, string> = {
       "content-type": "application/json",
@@ -62,7 +63,7 @@ export async function openaiChatCompletion(opts: {
         model: opts.model,
         messages: [{ role: "user", content: opts.prompt }],
         temperature: 0.3,
-        max_tokens: 256,
+        max_tokens: 512,
       }),
       signal: controller.signal,
     });
@@ -72,7 +73,8 @@ export async function openaiChatCompletion(opts: {
     }
 
     const json = (await res.json()) as OpenAIChatResponse;
-    const text = json.choices?.[0]?.message?.content?.trim() ?? "";
+    const msg = json.choices?.[0]?.message;
+    const text = (msg?.content || msg?.reasoning_content || msg?.reasoning || "").trim();
     if (!text) {
       throw new Error("empty hint");
     }
