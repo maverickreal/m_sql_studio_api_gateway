@@ -1,3 +1,4 @@
+import "./bun-compat";
 import { Worker } from "bullmq";
 import app from "./app";
 import { envVars, logger } from "./config";

@@ -232,5 +232,30 @@ describe("Admin users and audit log endpoints", () => {
       expect(res.body).toEqual({ items: mockAuditRows });
       expect(mockAuditLogFind).toHaveBeenCalled();
     });
+
+    it("completes cleanly when audit log response exceeds 16KB (Bun chunking verification)", async () => {
+      // Generate rows to ensure total response payload is > 16KB (16384 bytes)
+      const largeRows = Array.from({ length: 120 }, (_, i) => ({
+        _id: `audit-large-entry-${i}-${"x".repeat(50)}`,
+        actorId: `admin-actor-uuid-${i}-${"y".repeat(30)}`,
+        action: "role.change",
+        targetType: "user",
+        targetId: `target-user-uuid-${i}-${"z".repeat(30)}`,
+        meta: { from: "user", to: "admin", note: "filler payload for >16KB Bun stream verification" },
+        at: new Date("2026-09-09T10:00:00Z").toISOString(),
+      }));
+
+      const mockLean = vi.fn().mockResolvedValue(largeRows);
+      const mockLimit = vi.fn().mockReturnValue({ lean: mockLean });
+      const mockSort = vi.fn().mockReturnValue({ limit: mockLimit, lean: mockLean });
+      mockAuditLogFind.mockReturnValue({ sort: mockSort });
+
+      const res = await request(app).get("/api/v1/admin/audit?limit=200");
+
+      expect(res.status).toBe(200);
+      expect(res.body.items).toHaveLength(120);
+      const payloadBytes = Buffer.byteLength(JSON.stringify(res.body));
+      expect(payloadBytes).toBeGreaterThan(16384);
+    });
   });
 });

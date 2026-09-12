@@ -1,3 +1,4 @@
+import "./bun-compat";
 import { toNodeHandler } from "better-auth/node";
 import cors from "cors";
 import express from "express";
