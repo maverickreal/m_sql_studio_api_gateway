@@ -27,8 +27,8 @@ const jsonResponse = (content: string, model: string) =>
 
 const makeProviders = () => {
   const ollama = new OllamaHintProvider({
-    host: "http://127.0.0.1:11434/v1",
-    model: "gemma3:4b",
+    host: "http://127.0.0.1:3208/v1",
+    model: "LFM2.5-8B-A1B-MLX-6bit",
   });
   const gemini = new GeminiHintProvider({
     host: "https://generativelanguage.googleapis.com/v1beta/openai",
@@ -75,7 +75,7 @@ describe("HITL Hint Stack (ADR 005)", () => {
         schemaContext: "private_dataset(id INT, secret TEXT)",
       });
       expect(result).not.toBeNull();
-      expect(result?.model).toBe("gemma3:4b");
+      expect(result?.model).toBe("LFM2.5-8B-A1B-MLX-6bit");
     });
 
     it("classifies a query on public/shared datasets as shared", async () => {
@@ -169,7 +169,7 @@ describe("HITL Hint Stack (ADR 005)", () => {
         ...basePrompt,
         schemaContext: "public_dataset(id INT, data TEXT)",
       });
-      expect(result?.model).toBe("gemma3:4b");
+      expect(result?.model).toBe("LFM2.5-8B-A1B-MLX-6bit");
     });
 
     it("routes shared hint to Gemini when say=true", async () => {
@@ -214,7 +214,7 @@ describe("HITL Hint Stack (ADR 005)", () => {
         ...basePrompt,
         schemaContext: "private_user_data(id INT, ssn TEXT, salary INT)",
       });
-      expect(result?.model).toBe("gemma3:4b");
+      expect(result?.model).toBe("LFM2.5-8B-A1B-MLX-6bit");
     });
   });
 
@@ -292,7 +292,7 @@ describe("HITL Hint Stack (ADR 005)", () => {
         ...basePrompt,
         schemaContext: "public_dataset(id INT, data TEXT)",
       });
-      expect(result?.model).toBe("gemma3:4b");
+      expect(result?.model).toBe("LFM2.5-8B-A1B-MLX-6bit");
     });
 
     it("suppresses hint when both Gemini and Ollama fail", async () => {
@@ -339,7 +339,7 @@ describe("HITL Hint Stack (ADR 005)", () => {
         ...basePrompt,
         schemaContext: "public_dataset(id INT, data TEXT)",
       });
-      expect(result?.model).toBe("gemma3:4b");
+      expect(result?.model).toBe("LFM2.5-8B-A1B-MLX-6bit");
     });
   });
 

@@ -51,11 +51,14 @@ const envVarsSchema = z.object({
     .positive()
     .default(JOB_RESULT_TTL_DAYS),
   HINT_ENABLED: z.enum(["true", "false"]).default("true"),
-  HINT_API_URL: z.url().default("http://127.0.0.1:11434/v1"),
+  HINT_API_URL: z.url().default("http://127.0.0.1:3208/v1"),
   HINT_API_KEY: z.string().optional(),
-  HINT_MODEL: z.string().nonempty().default("gemma3:4b"),
+  HINT_MODEL: z.string().nonempty().default("LFM2.5-8B-A1B-MLX-6bit"),
   HINT_ALLOW_REMOTE: z.enum(["true", "false"]).default("false"),
-  HINT_REMOTE_API_URL: z.url().optional(),
+  HINT_REMOTE_API_URL: z.preprocess(
+    (val) => (!val ? undefined : val),
+    z.url().optional(),
+  ),
   HINT_REMOTE_API_KEY: z.string().optional(),
   HINT_REMOTE_MODEL: z.string().nonempty().default("gemini-3.5-flash"),
   HINT_SAY: z.enum(["true", "false"]).default("false"),
