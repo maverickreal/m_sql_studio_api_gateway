@@ -1,8 +1,22 @@
+import fs from "fs";
 import { envVars } from "../../config";
 import TaskQueueClient from "../job_queue";
 import { createHintStack } from "./create";
 import type { HintRouter } from "./hint-router";
 import type { HintPrompt } from "./types";
+
+function resolveHostForContainer(url: string): string {
+  try {
+    if (fs.existsSync("/.dockerenv")) {
+      const parsed = new URL(url);
+      if (parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost") {
+        parsed.hostname = "host.docker.internal";
+        return parsed.toString();
+      }
+    }
+  } catch {}
+  return url;
+}
 
 let stack: HintRouter | null | undefined;
 
@@ -16,7 +30,7 @@ export function getHintStack(): HintRouter | null {
   }
   stack = createHintStack({
     enabled: true,
-    ollamaHost: envVars.HINT_API_URL,
+    ollamaHost: resolveHostForContainer(envVars.HINT_API_URL),
     ollamaModel: envVars.HINT_MODEL,
     ollamaApiKey: envVars.HINT_API_KEY,
     geminiHost:
