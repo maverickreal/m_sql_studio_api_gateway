@@ -61,3 +61,36 @@ export const optionalAuthMware = async (
     next();
   }
 };
+
+export const requireVerifiedEmail = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    let sessionUser = req.user;
+    if (!sessionUser) {
+      const session = await auth.api.getSession({
+        headers: fromNodeHeaders(req.headers),
+      });
+
+      if (!session) {
+        res.status(401).json({ error: "Authentication required" });
+        return;
+      }
+
+      req.user = session.user;
+      req.session = session.session;
+      sessionUser = session.user;
+    }
+
+    if (!sessionUser.emailVerified) {
+      res.status(403).json({ error: "Email verification required" });
+      return;
+    }
+
+    next();
+  } catch {
+    res.status(401).json({ error: "Authentication required" });
+  }
+};

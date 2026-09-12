@@ -39,6 +39,14 @@ const envVarsSchema = z.object({
   DEFAULT_ADMIN_EMAIL: z.email().nonoptional(),
   DEFAULT_ADMIN_PASSWORD: z.string().nonempty().nonoptional(),
   ADMIN_SECRET_CODE: z.string().nonempty().nonoptional(),
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.preprocess(
+    (val) => (!val ? undefined : val),
+    z.coerce.number().int().positive().optional(),
+  ),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMTP_FROM: z.string().optional(),
   SANDBOX_SCHEMA_TTL_DAYS: z.coerce
     .number()
     .int()

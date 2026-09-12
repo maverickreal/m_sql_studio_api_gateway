@@ -6,11 +6,16 @@ import {
   set_user_role,
   list_audit,
 } from "../../../../controllers/";
-import { requireAuthMware, requireAdminMware } from "../../../../middleware/";
+import {
+  requireAuthMware,
+  requireAdminMware,
+  requireVerifiedEmail,
+} from "../../../../middleware/";
 
 const router = Router();
 
 router.use(requireAuthMware);
+router.use(requireVerifiedEmail);
 router.use(requireAdminMware);
 
 router.post("/assignments", create_assignment);

@@ -162,9 +162,23 @@ describe("Assignments detail & last-sql routes", () => {
       expect(res.body).toEqual({ error: "Authentication required" });
     });
 
+    it("returns 403 when user email is not verified", async () => {
+      mockGetSession.mockResolvedValue({
+        user: { id: "user-1", email: "user@example.com", emailVerified: false },
+        session: { id: "session-1" },
+      });
+
+      const res = await request(app)
+        .post("/api/v1/assignments/650000000000000000000001/last-sql")
+        .send({ userSql: "SELECT 1;" });
+
+      expect(res.status).toBe(403);
+      expect(res.body).toEqual({ error: "Email verification required" });
+    });
+
     it("returns 400 on invalid userSql when authenticated", async () => {
       mockGetSession.mockResolvedValue({
-        user: { id: "user-1", email: "user@example.com" },
+        user: { id: "user-1", email: "user@example.com", emailVerified: true },
         session: { id: "session-1" },
       });
 
@@ -178,7 +192,7 @@ describe("Assignments detail & last-sql routes", () => {
 
     it("returns 200 and saves last sql when valid", async () => {
       mockGetSession.mockResolvedValue({
-        user: { id: "user-1", email: "user@example.com" },
+        user: { id: "user-1", email: "user@example.com", emailVerified: true },
         session: { id: "session-1" },
       });
       mockFindOneAndUpdate.mockResolvedValue({});

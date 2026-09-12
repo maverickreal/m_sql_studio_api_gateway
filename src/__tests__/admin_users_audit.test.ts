@@ -78,7 +78,7 @@ describe("Admin users and audit log endpoints", () => {
     vi.clearAllMocks();
     // Default session: authenticated admin user
     mockGetSession.mockResolvedValue({
-      user: { id: "admin-actor-id", email: "admin@example.com", role: "admin" },
+      user: { id: "admin-actor-id", email: "admin@example.com", role: "admin", emailVerified: true },
       session: { id: "session-admin" },
     });
   });

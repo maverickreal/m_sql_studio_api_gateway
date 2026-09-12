@@ -60,10 +60,43 @@ describe("Auth 401/403 on /api/v1/admin/*", () => {
     });
   });
 
+  describe("Authenticated unverified requests (403)", () => {
+    beforeEach(() => {
+      mockGetSession.mockResolvedValue({
+        user: {
+          id: "user-1",
+          email: "user@example.com",
+          role: "admin",
+          emailVerified: false,
+        },
+        session: { id: "session-1" },
+      });
+    });
+
+    it("POST /api/v1/admin/assignments returns 403 when unverified", async () => {
+      const res = await request(app)
+        .post("/api/v1/admin/assignments")
+        .send({ title: "Test" });
+      expect(res.status).toBe(403);
+      expect(res.body).toEqual({ error: "Email verification required" });
+    });
+
+    it("GET /api/v1/admin/assignments returns 403 when unverified", async () => {
+      const res = await request(app).get("/api/v1/admin/assignments");
+      expect(res.status).toBe(403);
+      expect(res.body).toEqual({ error: "Email verification required" });
+    });
+  });
+
   describe("Authenticated non-admin requests (403)", () => {
     beforeEach(() => {
       mockGetSession.mockResolvedValue({
-        user: { id: "user-1", email: "user@example.com", role: "user" },
+        user: {
+          id: "user-1",
+          email: "user@example.com",
+          role: "user",
+          emailVerified: true,
+        },
         session: { id: "session-1" },
       });
     });

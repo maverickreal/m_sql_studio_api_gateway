@@ -5,6 +5,7 @@ import { createAuthMiddleware } from "better-auth/api";
 import { envVars } from "../config";
 import { sharedMongoClient } from "../data/db/client";
 import { UserProfile } from "../data/db/models/user_profile";
+import { sendVerificationEmail } from "./email";
 
 const mongoDb = sharedMongoClient.db();
 const socialProviders: Record<string, object> = {};
@@ -28,7 +29,11 @@ if (envVars.GITHUB_CLIENT_ID && envVars.GITHUB_CLIENT_SECRET) {
  * Uses better-auth's `hooks.after` to catch all sign-up paths (email/password, OAuth).
  * ctx.context.newSession is available after a successful signup.
  */
-async function autoCreateProfileAfterSignup(userId: string, name: string | undefined, email: string) {
+async function autoCreateProfileAfterSignup(
+  userId: string,
+  name: string | undefined,
+  email: string,
+) {
   const displayName = name || email.split("@")[0];
   try {
     await UserProfile.create({ userId, displayName });
@@ -46,6 +51,14 @@ export const auth = betterAuth({
   }),
   emailAndPassword: {
     enabled: true,
+    requireEmailVerification: true,
+  },
+  emailVerification: {
+    sendOnSignUp: true,
+    autoSignInAfterVerification: true,
+    sendVerificationEmail: async ({ user, url, token }) => {
+      await sendVerificationEmail({ user, url, token });
+    },
   },
   socialProviders,
   user: {
@@ -96,7 +109,10 @@ export const seedAdminUser = async (
 
   const existing = await usersCollection.findOne({ email });
   if (existing) {
-    await usersCollection.updateOne({ email }, { $set: { role: "admin" } });
+    await usersCollection.updateOne(
+      { email },
+      { $set: { role: "admin", emailVerified: true } },
+    );
     return;
   }
 
@@ -105,9 +121,12 @@ export const seedAdminUser = async (
   });
 
   if (result?.user) {
-    await usersCollection.updateOne({ email }, { $set: { role: "admin" } });
+    await usersCollection.updateOne(
+      { email },
+      { $set: { role: "admin", emailVerified: true } },
+    );
     await createProfileForUser(result.user.id, name);
   }
 };
 
-export { createProfileForUser };
+export { createProfileForUser, sendVerificationEmail };

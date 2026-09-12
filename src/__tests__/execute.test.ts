@@ -26,7 +26,8 @@ vi.mock("../services", async (importOriginal) => {
   return {
     ...actual,
     getAssignmentByIdCached: mockGetAssignmentByIdCached,
-    getAssignmentSolutionByAssignmentIdCached: mockGetAssignmentSolutionByAssignmentIdCached,
+    getAssignmentSolutionByAssignmentIdCached:
+      mockGetAssignmentSolutionByAssignmentIdCached,
     TaskQueueClient: {
       ...actual.TaskQueueClient,
       enqueue: mockEnqueue,
@@ -55,10 +56,37 @@ describe("POST /api/v1/assignments/client-sql-code-run/execute", () => {
     expect(res.body).toEqual({ error: "Authentication required" });
   });
 
+  it("returns 403 when user email is not verified", async () => {
+    mockGetSession.mockResolvedValue({
+      user: {
+        id: "user-100",
+        email: "student@example.com",
+        role: "user",
+        emailVerified: false,
+      },
+      session: { id: "session-100" },
+    });
+
+    const res = await request(app)
+      .post("/api/v1/assignments/client-sql-code-run/execute")
+      .send({
+        assignmentId: "650000000000000000000001",
+        userSql: "SELECT 1;",
+      });
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: "Email verification required" });
+  });
+
   describe("Authenticated user tests", () => {
     beforeEach(() => {
       mockGetSession.mockResolvedValue({
-        user: { id: "user-100", email: "student@example.com", role: "user" },
+        user: {
+          id: "user-100",
+          email: "student@example.com",
+          role: "user",
+          emailVerified: true,
+        },
         session: { id: "session-100" },
       });
     });
@@ -131,7 +159,9 @@ describe("POST /api/v1/assignments/client-sql-code-run/execute", () => {
         });
 
       expect(res.status).toBe(503);
-      expect(res.body).toEqual({ error: "Assignment unavailable at the moment!" });
+      expect(res.body).toEqual({
+        error: "Assignment unavailable at the moment!",
+      });
     });
 
     it("returns 202 and enqueues execution job on valid body and ready assignment", async () => {
@@ -163,7 +193,7 @@ describe("POST /api/v1/assignments/client-sql-code-run/execute", () => {
           userId: "user-100",
           solutionSql: "SELECT * FROM users;",
           orderMatters: true,
-        })
+        }),
       );
     });
   });

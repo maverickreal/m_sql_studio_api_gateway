@@ -7,6 +7,7 @@ import {
 import {
   ExecuteRateLimitMware,
   requireAuthMware,
+  requireVerifiedEmail,
 } from "../../../../../middleware/";
 
 const router = Router();
@@ -14,6 +15,7 @@ const router = Router();
 router.post(
   "/execute",
   requireAuthMware,
+  requireVerifiedEmail,
   ExecuteRateLimitMware,
   run_client_sql_code,
 );

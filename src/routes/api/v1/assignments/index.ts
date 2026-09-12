@@ -7,7 +7,11 @@ import {
   generate_assignment_hint,
 } from "../../../../controllers";
 import clientSQLCodeRunRouter from "./execution";
-import { requireAuthMware, validateObjectId } from "../../../../middleware/";
+import {
+  requireAuthMware,
+  requireVerifiedEmail,
+  validateObjectId,
+} from "../../../../middleware/";
 
 const router = Router();
 
@@ -26,6 +30,7 @@ router.get(
 router.post(
   "/:id/last-sql",
   requireAuthMware,
+  requireVerifiedEmail,
   validateObjectId("id"),
   save_last_sql,
 );
