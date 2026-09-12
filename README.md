@@ -6,7 +6,7 @@ REST API backend for the online SQL learning platform. Handles assignment manage
 
 | Technology | Purpose |
 |------------|---------|
-| Node.js 22 | Runtime |
+| Bun | Runtime |
 | TypeScript | Language |
 | Express.js 5.2 | HTTP framework |
 | MongoDB / Mongoose 9 | Assignment metadata storage |
@@ -20,7 +20,7 @@ REST API backend for the online SQL learning platform. Handles assignment manage
 
 ## Prerequisites
 
-- Node.js 22+
+- Bun
 - Running MongoDB, Redis, and PostgreSQL instances (or use the parent [m_sql_studio](../m_sql_studio) Docker Compose setup)
 
 ## Getting Started
@@ -28,7 +28,7 @@ REST API backend for the online SQL learning platform. Handles assignment manage
 ### 1. Install Dependencies
 
 ```bash
-npm ci
+bun install
 ```
 
 ### 2. Configure Environment Variables
@@ -42,16 +42,16 @@ Fill in all values. See [Environment Variables](#environment-variables).
 ### 3. Run in Development
 
 ```bash
-npm run dev
+bun run dev
 ```
 
-Starts the server with `nodemon` for automatic restarts on file changes.
+Starts the server with `bun --watch` for automatic restarts on file changes.
 
 ### 4. Build and Run for Production
 
 ```bash
-npm run build
-npm run start
+bun run build
+bun run start
 ```
 
 ### Docker
@@ -114,13 +114,13 @@ Authenticated via `x-internal-api-key` header.
 
 | Command | Description |
 |---------|-------------|
-| `npm run dev` | Start dev server with nodemon |
-| `npm run build` | Compile TypeScript to `dist/` |
-| `npm run start` | Run compiled output (`dist/index.js`) |
-| `npm run test` | Run tests with Vitest |
-| `npm run test:watch` | Run tests in watch mode |
-| `npm run lint` | Lint source files with ESLint |
-| `npm run format` | Format source files with Prettier |
+| `bun run dev` | Start dev server with `bun --watch` |
+| `bun run build` | Compile TypeScript to `dist/` |
+| `bun run start` | Run compiled output (`dist/index.js`) |
+| `bun run test` | Run tests with Vitest |
+| `bun run test:watch` | Run tests in watch mode |
+| `bun run lint` | Lint source files with ESLint |
+| `bun run format` | Format source files with Prettier |
 
 ## Project Structure
 
@@ -182,10 +182,10 @@ src/
 
 ```bash
 # Unit + integration
-npm run test
+bun run test
 
 # E2E (requires running services)
-E2E_TEST=true MONGO_HOST=<host> REDIS_HOST=<host> npm run test -- assignment_execution.e2e.test.ts
+E2E_TEST=true MONGO_HOST=<host> REDIS_HOST=<host> bun run test -- assignment_execution.e2e.test.ts
 ```
 
 ## Related Repositories
