@@ -6,13 +6,27 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { envVars } from "../../config";
 import {
   FileAuditLogger,
+  InMemoryAuditLogger,
+  type AuditLogger,
+  type AuditEvent,
+} from "./audit-logger";
+import {
   FileConsentStore,
   InMemoryConsentStore,
-  type AuditLogger,
   type ConsentStore,
-} from "../hint_stack";
+} from "./consent-store";
 
-export type AiProviderName = "local" | "ollama" | "openai" | "anthropic" | "google";
+export * from "./audit-logger";
+export * from "./consent-store";
+export * from "./health";
+export * from "./attach";
+
+export type AiProviderName =
+  | "local"
+  | "ollama"
+  | "openai"
+  | "anthropic"
+  | "google";
 
 export interface ResolveModelOptions {
   provider?: string;
@@ -87,7 +101,9 @@ export function getConsentStore(): ConsentStore {
   return new InMemoryConsentStore(envVars.HINT_SAY === "true");
 }
 
-export function resolveAiModel(options: ResolveModelOptions = {}): ModelResolution {
+export function resolveAiModel(
+  options: ResolveModelOptions = {},
+): ModelResolution {
   if (testModelOverride) {
     return {
       model: testModelOverride,
@@ -113,8 +129,13 @@ export function resolveAiModel(options: ResolveModelOptions = {}): ModelResoluti
 
   switch (providerName) {
     case "openai": {
-      const apiKey = options.apiKey || envVars.AI_API_KEY || process.env.OPENAI_API_KEY || "";
-      const modelName = options.modelName || envVars.AI_MODEL || "gpt-4o-mini";
+      const apiKey =
+        options.apiKey ||
+        envVars.AI_API_KEY ||
+        process.env.OPENAI_API_KEY ||
+        "";
+      const modelName =
+        options.modelName || envVars.AI_MODEL || "gpt-4o-mini";
       const openai = createOpenAI({ apiKey });
       return {
         model: openai(modelName),
@@ -125,8 +146,13 @@ export function resolveAiModel(options: ResolveModelOptions = {}): ModelResoluti
     }
 
     case "anthropic": {
-      const apiKey = options.apiKey || envVars.AI_API_KEY || process.env.ANTHROPIC_API_KEY || "";
-      const modelName = options.modelName || envVars.AI_MODEL || "claude-3-5-haiku-latest";
+      const apiKey =
+        options.apiKey ||
+        envVars.AI_API_KEY ||
+        process.env.ANTHROPIC_API_KEY ||
+        "";
+      const modelName =
+        options.modelName || envVars.AI_MODEL || "claude-3-5-haiku-latest";
       const anthropic = createAnthropic({ apiKey });
       return {
         model: anthropic(modelName),
@@ -143,7 +169,8 @@ export function resolveAiModel(options: ResolveModelOptions = {}): ModelResoluti
         process.env.GOOGLE_API_KEY ||
         process.env.GEMINI_API_KEY ||
         "";
-      const modelName = options.modelName || envVars.AI_MODEL || "gemini-2.5-flash";
+      const modelName =
+        options.modelName || envVars.AI_MODEL || "gemini-2.5-flash";
       const google = createGoogleGenerativeAI({ apiKey });
       return {
         model: google(modelName),
@@ -157,11 +184,20 @@ export function resolveAiModel(options: ResolveModelOptions = {}): ModelResoluti
     case "local":
     default: {
       const localBaseUrl = resolveHostForContainer(
-        envVars.AI_API_URL || envVars.HINT_API_URL || "http://127.0.0.1:3208/v1",
+        envVars.AI_API_URL ||
+          envVars.HINT_API_URL ||
+          "http://127.0.0.1:3208/v1",
       );
       const modelName =
-        options.modelName || envVars.AI_MODEL || envVars.HINT_MODEL || "LFM2.5-8B-A1B-MLX-6bit";
-      const apiKey = options.apiKey || envVars.AI_API_KEY || envVars.HINT_API_KEY || "dummy";
+        options.modelName ||
+        envVars.AI_MODEL ||
+        envVars.HINT_MODEL ||
+        "LFM2.5-8B-A1B-MLX-6bit";
+      const apiKey =
+        options.apiKey ||
+        envVars.AI_API_KEY ||
+        envVars.HINT_API_KEY ||
+        "dummy";
       const localOpenAi = createOpenAI({
         baseURL: localBaseUrl,
         apiKey,
@@ -193,7 +229,11 @@ export async function generateHintStream(
   const consent = getConsentStore();
 
   const configuredProvider = (envVars.AI_PROVIDER || "local").toLowerCase();
-  const isRemoteRequested = ["openai", "anthropic", "google"].includes(configuredProvider);
+  const isRemoteRequested = [
+    "openai",
+    "anthropic",
+    "google",
+  ].includes(configuredProvider);
   const ownerOnly = isOwnerOnly(args.schemaExcerpt, args.failedSql);
 
   let activeProvider = configuredProvider;
@@ -272,4 +312,15 @@ export async function generateHintStream(
     prompt: userPrompt,
     abortSignal: args.abortSignal,
   });
+}
+
+export async function generateHintText(
+  args: GenerateHintStreamArgs,
+): Promise<string> {
+  const result = await generateHintStream(args);
+  let fullText = "";
+  for await (const chunk of result.textStream) {
+    fullText += chunk;
+  }
+  return fullText.trim();
 }

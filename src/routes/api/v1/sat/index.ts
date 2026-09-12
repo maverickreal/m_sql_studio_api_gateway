@@ -1,19 +1,14 @@
 import { Router } from "express";
 import { requireAuthMware } from "../../../../middleware/";
-import { getHintStack } from "../../../../services/hint_stack";
+import { getHintHealth } from "../../../../services/ai_hint";
 import { logger } from "../../../../config";
 
 const router = Router();
 
 router.get("/hints/health", requireAuthMware, async (_req, res) => {
   try {
-    const stack = getHintStack();
-    if (!stack) {
-      res.json({ ollama: "down", gemini: "unconfigured", enabled: false });
-      return;
-    }
-    const health = await stack.getHealth();
-    res.json({ ...health, enabled: true });
+    const health = await getHintHealth();
+    res.json(health);
   } catch (err) {
     logger.error({ err }, "Failed to get hint stack health");
     res.status(500).json({ error: "Failed to get hint health" });

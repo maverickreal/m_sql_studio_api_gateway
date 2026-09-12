@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { TaskQueueClient, PassRecorder } from "../../services";
-import { maybeAttachOwnerHint } from "../../services/hint_stack";
+import { maybeAttachOwnerHint } from "../../services/ai_hint";
 
 const get_job_status = async (
   req: Request<{ taskId: string }>,

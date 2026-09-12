@@ -1,5 +1,3 @@
-// packages/sat-hints/src/audit-logger.ts
-
 import { promises as fs } from "node:fs";
 import { dirname } from "node:path";
 

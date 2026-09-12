@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { TaskQueueClient, SseSubscriber } from "../../services";
-import { maybeAttachOwnerHint } from "../../services/hint_stack";
+import { maybeAttachOwnerHint } from "../../services/ai_hint";
 import { logger } from "../../config";
 
 const SSE_HEARTBEAT_MS = 25000;

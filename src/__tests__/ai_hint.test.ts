@@ -26,8 +26,14 @@ import {
   setAuditLoggerForTests,
   setConsentStoreForTests,
   isOwnerOnly,
+  maybeAttachOwnerHint,
+  getHintHealth,
+  isLoopbackUrl,
+  generateHintStream,
+  InMemoryAuditLogger,
+  InMemoryConsentStore,
 } from "../services/ai_hint";
-import { InMemoryAuditLogger, InMemoryConsentStore } from "../services/hint_stack";
+import { TaskQueueClient } from "../services";
 import { envVars } from "../config";
 
 function createMockStreamingModel(textChunks: string[] = ["Check ", "your ", "JOIN syntax"]) {
@@ -339,4 +345,268 @@ describe("Vercel AI SDK Hint Path (Card t_77fe60f5)", () => {
       (envVars as any).HINT_SAY = origSay;
     });
   });
+
+  describe("Job Status Hint Attachment (maybeAttachOwnerHint)", () => {
+    it("attaches hint to failed job result when requester is owner", async () => {
+      const origEnabled = envVars.HINT_ENABLED;
+      (envVars as any).HINT_ENABLED = "true";
+
+      try {
+        const mockModel = createMockStreamingModel(["Check your WHERE clause"]);
+        setAiModelForTests(mockModel);
+
+        vi.spyOn(TaskQueueClient, "getJob").mockResolvedValue({
+          data: {
+            userSql: "SELECT * FROM users WHERE foo = 1",
+            assignmentSchema: "users(id INT, name TEXT)",
+          },
+        } as any);
+
+        const payload = {
+          status: "completed",
+          result: {
+            passed: false,
+            error: "column foo does not exist",
+          },
+        };
+
+        const withHint = await maybeAttachOwnerHint(payload, {
+          taskId: "123",
+          ownerUserId: "user-1",
+          requesterId: "user-1",
+        });
+
+        expect(withHint.result).toEqual({
+          passed: false,
+          error: "column foo does not exist",
+          hint: "Check your WHERE clause",
+        });
+      } finally {
+        (envVars as any).HINT_ENABLED = origEnabled;
+      }
+    });
+
+    it("does NOT attach hint if requester is not owner", async () => {
+      const payload = {
+        status: "completed",
+        result: { passed: false, error: "column foo does not exist" },
+      };
+
+      const withHint = await maybeAttachOwnerHint(payload, {
+        taskId: "123",
+        ownerUserId: "user-1",
+        requesterId: "user-2",
+      });
+
+      expect((withHint.result as any).hint).toBeUndefined();
+    });
+
+    it("does NOT attach hint if job passed", async () => {
+      const payload = {
+        status: "completed",
+        result: { passed: true },
+      };
+
+      const withHint = await maybeAttachOwnerHint(payload, {
+        taskId: "123",
+        ownerUserId: "user-1",
+        requesterId: "user-1",
+      });
+
+      expect((withHint.result as any)?.hint).toBeUndefined();
+    });
+
+    it("does NOT attach hint when HINT_ENABLED=false", async () => {
+      const origEnabled = envVars.HINT_ENABLED;
+      (envVars as any).HINT_ENABLED = "false";
+
+      const payload = {
+        status: "completed",
+        result: { passed: false, error: "failed" },
+      };
+
+      const withHint = await maybeAttachOwnerHint(payload, {
+        taskId: "123",
+        ownerUserId: "user-1",
+        requesterId: "user-1",
+      });
+
+      expect((withHint.result as any).hint).toBeUndefined();
+
+      (envVars as any).HINT_ENABLED = origEnabled;
+    });
+  });
+
+  describe("Health Endpoint and Functions (GET /api/v1/sat/hints/health)", () => {
+    it("returns 401 when unauthenticated", async () => {
+      mockGetSession.mockResolvedValue(null);
+
+      const res = await request(app).get("/api/v1/sat/hints/health");
+      expect(res.status).toBe(401);
+    });
+
+    it("returns health response when authenticated and enabled", async () => {
+      const origEnabled = envVars.HINT_ENABLED;
+      (envVars as any).HINT_ENABLED = "true";
+
+      try {
+        mockGetSession.mockResolvedValue({
+          user: { id: "user-1", email: "learner@msql.dev", role: "user" },
+          session: { id: "sess-1" },
+        });
+
+        vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
+
+        const res = await request(app).get("/api/v1/sat/hints/health");
+        expect(res.status).toBe(200);
+        expect(res.body).toHaveProperty("ollama");
+        expect(res.body).toHaveProperty("gemini");
+        expect(res.body.enabled).toBe(true);
+
+        vi.unstubAllGlobals();
+      } finally {
+        (envVars as any).HINT_ENABLED = origEnabled;
+      }
+    });
+
+    it("returns down and disabled when HINT_ENABLED=false", async () => {
+      const origEnabled = envVars.HINT_ENABLED;
+      (envVars as any).HINT_ENABLED = "false";
+
+      mockGetSession.mockResolvedValue({
+        user: { id: "user-1", email: "learner@msql.dev", role: "user" },
+        session: { id: "sess-1" },
+      });
+
+      const res = await request(app).get("/api/v1/sat/hints/health");
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        ollama: "down",
+        gemini: "unconfigured",
+        enabled: false,
+      });
+
+      (envVars as any).HINT_ENABLED = origEnabled;
+    });
+
+    it("evaluates loopback urls correctly", () => {
+      expect(isLoopbackUrl("http://127.0.0.1:3208/v1")).toBe(true);
+      expect(isLoopbackUrl("http://localhost:3208/v1")).toBe(true);
+      expect(isLoopbackUrl("http://host.docker.internal:3208/v1")).toBe(true);
+      expect(isLoopbackUrl("https://api.openai.com/v1")).toBe(false);
+    });
+  });
+
+  describe("live local LFM2.5 model (mlx-serve on 127.0.0.1:3208)", () => {
+    it("returns hint text from local LFM2.5 via Vercel AI SDK when model is running", async () => {
+      vi.unstubAllGlobals();
+      const healthRes = await fetch("http://127.0.0.1:3208/v1/models").catch(() => null);
+      if (!healthRes?.ok) {
+        console.warn("mlx-serve is not running, skipping live model assertion");
+        return;
+      }
+
+      setAiModelForTests(null);
+      const stream = await generateHintStream({
+        schemaExcerpt: "CREATE TABLE users (id int, name text);",
+        assignmentDescription: "SQL query debugging and assistance",
+        failedSql: "SELECT * FORM users;",
+        error: 'syntax error at or near "FORM"',
+        taskId: "live-test-1",
+        userId: "user-live",
+      });
+
+      let fullText = "";
+      for await (const delta of stream.textStream) {
+        fullText += delta;
+      }
+      expect(fullText).toBeTruthy();
+    }, 25000);
+  });
+
+  describe("Live End-to-End Proof (Card Requirement 5)", () => {
+    it("executes live assignment-hint request returning 200 with live hint content", async () => {
+      vi.unstubAllGlobals();
+      const healthRes = await fetch("http://127.0.0.1:3208/v1/models").catch(() => null);
+      if (!healthRes?.ok) {
+        console.warn("mlx-serve is not running, skipping live proof");
+        return;
+      }
+
+      const origEnabled = envVars.HINT_ENABLED;
+      (envVars as any).HINT_ENABLED = "true";
+      setAiModelForTests(null);
+
+      try {
+        mockGetSession.mockResolvedValue({
+          user: { id: "user-live-proof", email: "live@msql.dev", role: "user" },
+          session: { id: "sess-live-proof" },
+        });
+
+        const res = await request(app)
+          .post("/api/v1/assignments/hint")
+          .send({
+            schemaExcerpt: "CREATE TABLE users (id int, name text);",
+            assignmentDescription: "Select all users",
+            failedSql: "SELECT * FORM users;",
+            error: 'syntax error at or near "FORM"',
+          });
+
+        expect(res.status).toBe(200);
+        expect(res.text).toBeTruthy();
+        console.log("\n[LIVE PROOF] Assignment Hint 200 OK ->", res.text.trim());
+      } finally {
+        (envVars as any).HINT_ENABLED = origEnabled;
+      }
+    }, 30000);
+
+    it("executes live job-hint request returning 200 with live hint content attached", async () => {
+      vi.unstubAllGlobals();
+      const healthRes = await fetch("http://127.0.0.1:3208/v1/models").catch(() => null);
+      if (!healthRes?.ok) {
+        console.warn("mlx-serve is not running, skipping live proof");
+        return;
+      }
+
+      const origEnabled = envVars.HINT_ENABLED;
+      (envVars as any).HINT_ENABLED = "true";
+      setAiModelForTests(null);
+
+      try {
+        mockGetSession.mockResolvedValue({
+          user: { id: "user-live-proof", email: "live@msql.dev", role: "user" },
+          session: { id: "sess-live-proof" },
+        });
+
+        vi.spyOn(TaskQueueClient, "getStatus").mockResolvedValue({
+          status: "completed",
+          ownerUserId: "user-live-proof",
+          result: {
+            passed: false,
+            error: 'syntax error at or near "FORM"',
+          },
+        } as any);
+
+        vi.spyOn(TaskQueueClient, "getJob").mockResolvedValue({
+          data: {
+            userSql: "SELECT * FORM users;",
+            assignmentSchema: "CREATE TABLE users (id int, name text);",
+          },
+        } as any);
+
+        const res = await request(app).get(
+          "/api/v1/assignments/client-sql-code-run/status/12345",
+        );
+
+        expect(res.status).toBe(200);
+        expect(res.body.result).toHaveProperty("hint");
+        expect(res.body.result.hint).toBeTruthy();
+        console.log("\n[LIVE PROOF] Job Hint 200 OK ->", JSON.stringify(res.body, null, 2));
+      } finally {
+        (envVars as any).HINT_ENABLED = origEnabled;
+      }
+    }, 30000);
+  });
 });
+
+
